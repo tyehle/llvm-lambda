@@ -24,6 +24,10 @@ dependencies:
 
 library:
   source-dirs: src
+  dependencies:
+  - llvm-hs-pure
+  - containers
+  - mtl
 
 executables:
   llvm-lambda-exe:
