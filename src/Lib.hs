@@ -9,7 +9,6 @@ import Control.Monad.State
 import qualified Data.ByteString.Char8 as BS
 
 import LLVM.AST
-import qualified LLVM.AST as AST
 import LLVM.AST.Global
 import LLVM.Context
 import LLVM.Module hiding (Module)
@@ -39,7 +38,7 @@ someIR = defaultModule
       , returnType = int
       , basicBlocks = [body]
       }
-    -- body :: Block
+    body :: BasicBlock
     body = BasicBlock
       (Name "entry")
       [Name "result" := Add
