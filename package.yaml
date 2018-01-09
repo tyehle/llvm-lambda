@@ -25,7 +25,9 @@ dependencies:
 library:
   source-dirs: src
   dependencies:
+  - llvm-hs
   - llvm-hs-pure
+  - bytestring
   - containers
   - mtl
 
