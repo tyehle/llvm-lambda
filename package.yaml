@@ -41,6 +41,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - llvm-lambda
+    - bytestring
 
 tests:
   llvm-lambda-test:
