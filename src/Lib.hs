@@ -2,10 +2,6 @@
 
 module Lib where
 
-import Data.Map (Map)
-import qualified Data.Map as Map
-import Data.Maybe
-import Control.Monad.State
 import qualified Data.ByteString.Char8 as BS
 
 import LLVM.AST
@@ -76,16 +72,3 @@ someIR = defaultModule
 
 toLLVM :: Module -> IO BS.ByteString
 toLLVM ast = withContext $ \ctx -> withModuleFromAST ctx ast moduleLLVMAssembly
-
-
-class MonadFresh m where
-  uniqueName :: String -> m String
-
-fresh :: MonadFresh m => m String
-fresh = uniqueName ""
-
-instance Monad m => MonadFresh (StateT (Map String Int) m) where
-  uniqueName name = do
-    count <- gets $ fromMaybe 0 . Map.lookup name
-    modify $ Map.insert name (count + 1)
-    return $ name ++ show count
