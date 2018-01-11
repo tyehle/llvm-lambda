@@ -104,7 +104,6 @@ testing expr = defaultModule { moduleName = "main", moduleDefinitions = [printf,
     body = instructions . execFreshCodegen $ synthExpr expr >>= printResult
     printResult :: Operand -> FreshCodegen ()
     printResult reg = do
-      -- let fmtString = ConstantOperand $ C.Array charType [C.Int 8 37, C.Int 8 100, C.Int 8 10, C.Int 8 0]
       let fmtString = ConstantOperand $ C.GetElementPtr True (C.GlobalReference (PointerType (ArrayType 4 charType) (AddrSpace 0)) (Name "fmt")) [C.Int 32 0, C.Int 32 0]
       let doPrint = Do $ Call Nothing C [] printfOp [(fmtString, []), (reg, [])] [] []
       modify $ \s -> s { instructions = instructions s ++ [doPrint] }
@@ -120,21 +119,3 @@ synthExpr (Plus a b) = do
   let instruction = myName := Add False False aName bName []
   modify $ \s -> s { instructions = instructions s ++ [instruction] }
   return $ LocalReference intType myName
-
-
-{-
-main :: Definition
-main = GlobalDefinition functionDefaults
-  { name = Name "main"
-  , parameters = ([], False)
-  , returnType = VoidType
-  , basicBlocks =
-    [ BasicBlock
-        (Name "entry") -- block name
-        [ Do $ Call Nothing C [] putcharOp [(ConstantOperand $ C.Int 32 33, [])] [] [] -- instructions
-        , Do $ Call Nothing C [] putcharOp [(ConstantOperand $ C.Int 32 10, [])] [] []
-        ]
-        (Do $ Ret Nothing []) -- return value
-    ]
-  }
--}
