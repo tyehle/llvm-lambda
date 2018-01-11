@@ -105,7 +105,7 @@ testing expr = defaultModule { moduleName = "main", moduleDefinitions = [printf,
     printResult :: Operand -> FreshCodegen ()
     printResult reg = do
       -- let fmtString = ConstantOperand $ C.Array charType [C.Int 8 37, C.Int 8 100, C.Int 8 10, C.Int 8 0]
-      let fmtString = ConstantOperand $ C.GetElementPtr True (C.GlobalReference (PointerType (ArrayType 4 charType) (AddrSpace 0)) (Name "fmt")) [C.Int 32 0]
+      let fmtString = ConstantOperand $ C.GetElementPtr True (C.GlobalReference (PointerType (ArrayType 4 charType) (AddrSpace 0)) (Name "fmt")) [C.Int 32 0, C.Int 32 0]
       let doPrint = Do $ Call Nothing C [] printfOp [(fmtString, []), (reg, [])] [] []
       modify $ \s -> s { instructions = instructions s ++ [doPrint] }
       return ()
