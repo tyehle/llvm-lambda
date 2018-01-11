@@ -13,11 +13,6 @@ import LLVM.AST.AddrSpace
 import qualified LLVM.AST.Constant as C
 import LLVM.Module hiding (Module)
 
-import Expr
-
-example :: Expr
-example = Let "x" (Plus (Nat 1) (Nat 2)) $ Minus (Nat 5) (Ref "x")
-
 
 someIR :: Module
 someIR = defaultModule
