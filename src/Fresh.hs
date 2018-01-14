@@ -7,38 +7,45 @@ import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Control.Monad.Identity
 import Control.Monad.State
+import Data.ByteString.Char8 (pack)
+import Data.ByteString.Short (toShort)
+
+import LLVM.AST
 
 
 class MonadFresh m where
-  uniqueName :: String -> m String
+  next :: String -> m Integer
 
-fresh :: (Functor m, MonadFresh m) => m Word
-fresh = read <$> uniqueName ""
+uniqueName :: (Functor m, MonadFresh m) => String -> m Name
+uniqueName name = Name . toShort . pack . (name ++) . show <$> next name
+
+fresh :: (Functor m, MonadFresh m) => m Name
+fresh = UnName . fromIntegral <$> next ""
 
 
 newtype FreshT m a =
-  FreshT { freshState :: StateT (Map String Int) m a }
+  FreshT { freshState :: StateT (Map String Integer) m a }
   deriving (Functor, Applicative, Monad, MonadTrans)
 
-evalFreshT :: Monad m => FreshT m a -> Map String Int -> m a
+evalFreshT :: Monad m => FreshT m a -> Map String Integer -> m a
 evalFreshT = evalStateT . freshState
 
 
 type Fresh = FreshT Identity
 
-evalFresh :: FreshT Identity a -> Map String Int -> a
+evalFresh :: FreshT Identity a -> Map String Integer -> a
 evalFresh = evalState . freshState
 
 
 instance Monad m => MonadFresh (FreshT m) where
-  uniqueName name = FreshT $ do
+  next name = FreshT $ do
     count <- gets $ fromMaybe 0 . Map.lookup name
     modify $ Map.insert name (count + 1)
-    return $ name ++ show count
+    return count
 
 
 instance (MonadFresh m, Monad m) => MonadFresh (StateT s m) where
-  uniqueName = lift . uniqueName
+  next = lift . next
 
 instance MonadState s m => MonadState s (FreshT m) where
   get = lift get
@@ -49,14 +56,14 @@ instance MonadState s m => MonadState s (FreshT m) where
 a :: FreshT (State Int) String
 a = return "Hi"
 
-b :: FreshT (State Int) String
+b :: FreshT (State Int) Name
 b = a >>= uniqueName
 
-test :: String
+test :: Name
 test = flip evalState 24 . flip evalFreshT (Map.fromList []) $ b
 
-c :: StateT Int Fresh String
+c :: StateT Int Fresh Name
 c = uniqueName "Var"
 
-test2 :: String
+test2 :: Name
 test2 = flip evalFresh (Map.fromList []) . flip evalStateT 42 $ c

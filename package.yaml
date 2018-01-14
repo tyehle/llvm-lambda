@@ -42,6 +42,7 @@ executables:
     dependencies:
     - llvm-lambda
     - bytestring
+    - containers
 
 tests:
   llvm-lambda-test:

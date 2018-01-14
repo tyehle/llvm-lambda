@@ -19,10 +19,12 @@ import LLVM.AST.Linkage (Linkage(Private))
 import LLVM.Context
 import LLVM.Module hiding (Module)
 
-import Expr
+import LowLevel
 import Fresh
+import LibCDefs
+import Scope
 
-generate :: Expr -> IO ByteString
+generate :: Prog -> IO ByteString
 generate expr = withContext $ \ctx -> withModuleFromAST ctx (genModule expr) moduleLLVMAssembly
 
 
@@ -30,9 +32,12 @@ newtype CodegenT m a =
   CodegenT { codegenState :: StateT CodegenState m a }
   deriving (Functor, Applicative, Monad, MonadState CodegenState)
 
+type Env = Map String (Operand, Type)
+
 data CodegenState = CodegenState
-  { instructions :: [Named Instruction]
-  , environment :: Map String Operand
+  { defs :: [Definition]
+  , instructions :: [Named Instruction]
+  , environment :: Env
   }
 
 type Codegen = CodegenT Identity
@@ -40,8 +45,11 @@ type Codegen = CodegenT Identity
 execCodegen :: Codegen a -> CodegenState -> CodegenState
 execCodegen = execState . codegenState
 
-modifyEnvironment :: MonadState CodegenState m => (Map String Operand -> Map String Operand) -> m ()
+modifyEnvironment :: MonadState CodegenState m => (Env -> Env) -> m ()
 modifyEnvironment f = modify $ \s -> s { environment = f . environment $ s }
+
+appendInstruction :: MonadState CodegenState m => Named Instruction -> m ()
+appendInstruction instr = modify $ \s -> s { instructions = instructions s ++ [instr] }
 
 
 type FreshCodegen = FreshT Codegen
@@ -49,36 +57,12 @@ type FreshCodegen = FreshT Codegen
 execFreshCodegen :: FreshCodegen a -> CodegenState
 execFreshCodegen = flip execCodegen emptyState . flip evalFreshT Map.empty
   where
-    emptyState = CodegenState { instructions=[], environment=Map.empty }
+    emptyState = CodegenState { defs=[], instructions=[], environment=Map.empty }
 
 
-doubleType :: Type
-doubleType = FloatingPointType DoubleFP
-
-intType :: Type
-intType = IntegerType 32
-
-charType :: Type
-charType = IntegerType 8
-
-charStarType :: Type
-charStarType = PointerType charType (AddrSpace 0)
-
-
-genModule :: Expr -> Module
-genModule expr = defaultModule { moduleName = "main", moduleDefinitions = [printf, numberFmt, main] }
+genModule :: Prog -> Module
+genModule (Prog defs expr) = defaultModule { moduleName = "main", moduleDefinitions = [printf, numberFmt, main] }
   where
-    printf :: Definition
-    printf = GlobalDefinition functionDefaults
-      { G.name = Name "printf"
-      , G.parameters = ([Parameter charStarType (Name "fmt") []], True)
-      , G.returnType = intType
-      , G.basicBlocks = []
-      }
-
-    printfOp :: CallableOperand
-    printfOp = Right $ ConstantOperand $ C.GlobalReference (PointerType (FunctionType intType [charStarType] True) (AddrSpace 0)) (Name "printf")
-
     numberFmt :: Definition
     numberFmt = GlobalDefinition globalVariableDefaults
       { G.name = Name "fmt"
@@ -99,23 +83,23 @@ genModule expr = defaultModule { moduleName = "main", moduleDefinitions = [print
     body :: [Named Instruction]
     body = instructions . execFreshCodegen $ synthExpr expr >>= printResult
 
-    printResult :: Operand -> FreshCodegen ()
-    printResult reg = do
-      let fmtString = ConstantOperand $ C.GetElementPtr True (C.GlobalReference (PointerType (ArrayType 4 charType) (AddrSpace 0)) (Name "fmt")) [C.Int 32 0, C.Int 32 0]
-      let doPrint = Do $ Call Nothing C [] printfOp [(fmtString, []), (reg, [])] [] []
-      modify $ \s -> s { instructions = instructions s ++ [doPrint] }
-      return ()
+    printResult :: (Operand, Type) -> FreshCodegen ()
+    printResult (reg, IntegerType 32) = do
+      let refType = PointerType (ArrayType 4 charType) (AddrSpace 0)
+      let fmtArg = ConstantOperand $ C.GetElementPtr True (C.GlobalReference refType (Name "fmt")) [C.Int 32 0, C.Int 32 0]
+      appendInstruction $ Do $ callExternal (externalFunctionOp intType [charStarType] True "printf") [fmtArg, reg]
+    printResult (_, badType) = error $ "Can't print a result with type " ++ show badType
 
 
-synthExpr :: Expr -> FreshCodegen Operand
-synthExpr (Nat n) = return . ConstantOperand . C.Int 32 . fromIntegral $ n
+synthExpr :: Expr -> FreshCodegen (Operand, Type)
+synthExpr (Num n) = return . flip (,) intType . ConstantOperand . C.Int 32 . fromIntegral $ n
 synthExpr (Plus a b) = do
-  aName <- synthExpr a
-  bName <- synthExpr b
+  (aName, _) <- synthExpr a
+  (bName, _) <- synthExpr b
   doInstruction intType $ Add False False aName bName []
 synthExpr (Minus a b) = do
-  aName <- synthExpr a
-  bName <- synthExpr b
+  (aName, _) <- synthExpr a
+  (bName, _) <- synthExpr b
   doInstruction intType $ Sub False False aName bName []
 synthExpr (Let name binding body) = do
   oldEnv <- gets environment
@@ -127,10 +111,17 @@ synthExpr (Let name binding body) = do
 synthExpr (Ref name) = do
   env <- gets environment
   return $ env ! name
+synthExpr (App func args) = undefined
 
 
-doInstruction :: Type -> Instruction -> FreshCodegen Operand
+doInstruction :: Type -> Instruction -> FreshCodegen (Operand, Type)
 doInstruction typ instr = do
-  myName <- UnName <$> fresh
+  myName <- fresh
   modify $ \s -> s { instructions = instructions s ++ [myName := instr] }
-  return $ LocalReference typ myName
+  return . flip (,) typ $ LocalReference typ myName
+
+
+callExternal :: CallableOperand -> [Operand] -> Instruction
+callExternal func argOps = Call Nothing C [] func args [] []
+  where
+    args = map (flip (,) []) argOps
