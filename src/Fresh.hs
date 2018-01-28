@@ -6,7 +6,10 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Control.Monad.Identity
-import Control.Monad.State
+import Control.Monad.State.Strict
+import Control.Monad.Trans.State.Strict (liftListen, liftPass, mapStateT)
+import Control.Monad.Writer
+import Control.Monad.Reader
 import Data.ByteString.Char8 (pack)
 import Data.ByteString.Short (toShort)
 
@@ -30,6 +33,9 @@ newtype FreshT m a =
 evalFreshT :: Monad m => FreshT m a -> Map String Integer -> m a
 evalFreshT = evalStateT . freshState
 
+runFreshT :: Monad m => FreshT m a -> Map String Integer -> m (a, Map String Integer)
+runFreshT = runStateT . freshState
+
 
 type Fresh = FreshT Identity
 
@@ -51,6 +57,15 @@ instance MonadState s m => MonadState s (FreshT m) where
   get = lift get
   put = lift . put
   state = lift . state
+
+instance MonadWriter w m => MonadWriter w (FreshT m) where
+  writer = lift . writer
+  listen = FreshT . liftListen listen . freshState
+  pass = FreshT . liftPass pass . freshState
+
+instance MonadReader r m => MonadReader r (FreshT m) where
+  ask = lift ask
+  local f = FreshT . (mapStateT . local) f . freshState
 
 
 a :: FreshT (State Int) String

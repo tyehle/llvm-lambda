@@ -61,8 +61,11 @@ execFreshCodegen = flip execCodegen emptyState . flip evalFreshT Map.empty
 
 
 genModule :: Prog -> Module
-genModule (Prog defs expr) = defaultModule { moduleName = "main", moduleDefinitions = [printf, numberFmt, main] }
+genModule (Prog defs expr) = defaultModule { moduleName = "main", moduleDefinitions = numberFmt : main : externalDefs }
   where
+    externalDefs :: [Definition]
+    externalDefs = map GlobalDefinition [printf, malloc, free]
+
     numberFmt :: Definition
     numberFmt = GlobalDefinition globalVariableDefaults
       { G.name = Name "fmt"
@@ -87,7 +90,7 @@ genModule (Prog defs expr) = defaultModule { moduleName = "main", moduleDefiniti
     printResult (reg, IntegerType 32) = do
       let refType = PointerType (ArrayType 4 charType) (AddrSpace 0)
       let fmtArg = ConstantOperand $ C.GetElementPtr True (C.GlobalReference refType (Name "fmt")) [C.Int 32 0, C.Int 32 0]
-      appendInstruction $ Do $ callExternal (externalFunctionOp intType [charStarType] True "printf") [fmtArg, reg]
+      appendInstruction $ Do $ callExternal (globalFOp printf) [fmtArg, reg]
     printResult (_, badType) = error $ "Can't print a result with type " ++ show badType
 
 
@@ -111,7 +114,11 @@ synthExpr (Let name binding body) = do
 synthExpr (Ref name) = do
   env <- gets environment
   return $ env ! name
-synthExpr (App func args) = undefined
+synthExpr (App funcName args) = undefined
+synthExpr (AppClos clos args) = undefined
+synthExpr (NewClos closName) = undefined
+synthExpr (SetEnv name binding clos body) = undefined
+synthExpr (GetEnv name clos) = undefined
 
 
 doInstruction :: Type -> Instruction -> FreshCodegen (Operand, Type)

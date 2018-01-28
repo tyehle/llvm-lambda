@@ -30,6 +30,7 @@ library:
   - bytestring
   - containers
   - mtl
+  - transformers
 
 executables:
   llvm-lambda-exe:

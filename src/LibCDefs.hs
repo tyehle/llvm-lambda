@@ -29,8 +29,8 @@ charStarType :: Type
 charStarType = PointerType charType (AddrSpace 0)
 
 
-printf :: Definition
-printf = GlobalDefinition functionDefaults
+printf :: Global
+printf = functionDefaults
   { name = Name "printf"
   , parameters = ([Parameter charStarType (Name "fmt") []], True)
   , returnType = intType
@@ -38,8 +38,8 @@ printf = GlobalDefinition functionDefaults
   }
 
 
-malloc :: Definition
-malloc = GlobalDefinition functionDefaults
+malloc :: Global
+malloc = functionDefaults
   { name = Name "malloc"
   , parameters = ([Parameter longType (Name "size") []], False)
   , returnType = charStarType
@@ -47,8 +47,8 @@ malloc = GlobalDefinition functionDefaults
   }
 
 
-free :: Definition
-free = GlobalDefinition functionDefaults
+free :: Global
+free = functionDefaults
   { name = Name "free"
   , parameters = ([Parameter charStarType (Name "ptr") []], False)
   , returnType = VoidType
@@ -56,7 +56,11 @@ free = GlobalDefinition functionDefaults
   }
 
 
-externalFunctionOp :: Type -> [Type] -> Bool -> ShortByteString -> CallableOperand
-externalFunctionOp retType argTypes varArgs name = Right $ ConstantOperand $ GlobalReference ptrType (Name name)
+globalFOp :: Global -> CallableOperand
+globalFOp def = Right $ ConstantOperand $ GlobalReference ptrType (name def)
   where
     ptrType = PointerType (FunctionType retType argTypes varArgs) (AddrSpace 0)
+    retType = returnType def
+    argTypes = map typeOf . fst . parameters $ def
+    typeOf (Parameter typ _ _) = typ
+    varArgs = snd . parameters $ def

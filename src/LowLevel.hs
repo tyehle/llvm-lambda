@@ -1,6 +1,7 @@
 module LowLevel where
 
 import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Control.Monad.Writer
@@ -9,6 +10,7 @@ import Control.Monad.State
 
 import qualified Expr as HL
 import Scope
+import Fresh
 
 -- main :: IO ()
 -- main = do
@@ -59,10 +61,10 @@ instance Scope Expr where
 runConvert :: HL.Expr -> Set String -> Prog
 runConvert body globals = Prog (reverse newDefs) newBody
   where
-    (newBody, newDefs) = runWriter . flip runReaderT globals . flip evalStateT (0, 0) . convert $ body
+    (newBody, newDefs) = runWriter . flip runReaderT globals . flip evalFreshT Map.empty . convert $ body
 
 
-convert :: HL.Expr -> StateT (Int, Int) (ReaderT (Set String) (Writer [Def])) Expr
+convert :: HL.Expr -> FreshT (ReaderT (Set String) (Writer [Def])) Expr
 convert (HL.Nat n) = return $ Num n
 convert (HL.Plus a b) = do
   a' <- convert a
@@ -104,17 +106,15 @@ callClosure :: Expr -> [Expr] -> Expr
 callClosure closure args = AppClos closure $ closure : args
 
 
-freshFunc :: StateT (Int, Int) (ReaderT (Set String) (Writer [Def])) String
+freshFunc :: FreshT (ReaderT (Set String) (Writer [Def])) String
 freshFunc = do
-  (f, c) <- get
-  put (f+1, c)
-  return $ "_f" ++ show f
+  i <- next "_f"
+  return $ "_f" ++ show i
 
-freshClos :: StateT (Int, Int) (ReaderT (Set String) (Writer [Def])) String
+freshClos :: FreshT (ReaderT (Set String) (Writer [Def])) String
 freshClos = do
-  (f, c) <- get
-  put (f, c+1)
-  return $ "_c" ++ show c
+  i <- next "_c"
+  return $ "_c" ++ show i
 
 
 subst :: Set String -> Expr -> Expr -> Expr
@@ -127,7 +127,6 @@ subst vars env (Let name binding body) = Let name binding' body'
 subst vars env (Ref name)
   | Set.member name vars = GetEnv name env
   | otherwise            = Ref name
--- subst vars env (HL.Lambda args body) = Lambda args $ subst (vars `Set.difference` Set.fromList args) env body
 subst vars env (AppClos func args) = AppClos (subst vars env func) (map (subst vars env) args)
 subst vars env (App name args) = App name $ map (subst vars env) args
 subst vars env nc@NewClos{} = nc
