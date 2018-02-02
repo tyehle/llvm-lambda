@@ -32,7 +32,7 @@ newtype CodegenT m a =
   CodegenT { codegenState :: StateT CodegenState m a }
   deriving (Functor, Applicative, Monad, MonadState CodegenState)
 
-type Env = Map String (Operand, Type)
+type Env = Map String Operand
 
 data CodegenState = CodegenState
   { defs :: [Definition]
@@ -86,23 +86,26 @@ genModule (Prog defs expr) = defaultModule { moduleName = "main", moduleDefiniti
     body :: [Named Instruction]
     body = instructions . execFreshCodegen $ synthExpr expr >>= printResult
 
-    printResult :: (Operand, Type) -> FreshCodegen ()
-    printResult (reg, IntegerType 32) = do
+    printResult :: Operand -> FreshCodegen ()
+    printResult reg = do
       let refType = PointerType (ArrayType 4 charType) (AddrSpace 0)
       let fmtArg = ConstantOperand $ C.GetElementPtr True (C.GlobalReference refType (Name "fmt")) [C.Int 32 0, C.Int 32 0]
-      appendInstruction $ Do $ callExternal (globalFOp printf) [fmtArg, reg]
-    printResult (_, badType) = error $ "Can't print a result with type " ++ show badType
+      appendInstruction $ Do $ callExternal printf [fmtArg, reg]
 
 
-synthExpr :: Expr -> FreshCodegen (Operand, Type)
-synthExpr (Num n) = return . flip (,) intType . ConstantOperand . C.Int 32 . fromIntegral $ n
+synthDef :: Def -> FreshCodegen Operand
+synthDef (Def name argNames body) = undefined
+
+
+synthExpr :: Expr -> FreshCodegen Operand
+synthExpr (Num n) = return . ConstantOperand . C.Int 32 . fromIntegral $ n
 synthExpr (Plus a b) = do
-  (aName, _) <- synthExpr a
-  (bName, _) <- synthExpr b
+  aName <- synthExpr a
+  bName <- synthExpr b
   doInstruction intType $ Add False False aName bName []
 synthExpr (Minus a b) = do
-  (aName, _) <- synthExpr a
-  (bName, _) <- synthExpr b
+  aName <- synthExpr a
+  bName <- synthExpr b
   doInstruction intType $ Sub False False aName bName []
 synthExpr (Let name binding body) = do
   oldEnv <- gets environment
@@ -121,14 +124,14 @@ synthExpr (SetEnv name binding clos body) = undefined
 synthExpr (GetEnv name clos) = undefined
 
 
-doInstruction :: Type -> Instruction -> FreshCodegen (Operand, Type)
+doInstruction :: Type -> Instruction -> FreshCodegen Operand
 doInstruction typ instr = do
   myName <- fresh
   modify $ \s -> s { instructions = instructions s ++ [myName := instr] }
-  return . flip (,) typ $ LocalReference typ myName
+  return $ LocalReference typ myName
 
 
-callExternal :: CallableOperand -> [Operand] -> Instruction
-callExternal func argOps = Call Nothing C [] func args [] []
+callExternal :: Global -> [Operand] -> Instruction
+callExternal func argOps = Call Nothing C [] (globalFOp func) args [] []
   where
     args = map (flip (,) []) argOps
