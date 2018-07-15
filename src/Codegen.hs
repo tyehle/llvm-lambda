@@ -93,9 +93,18 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
     buildFunction = do
       let envParam = (star (star intType), Name "env")
       let argParam = (star intType, Name "x")
+
+      -- get a refernece to the environment
+      let env = uncurry LocalReference envParam
+
+      -- get a value from the environment
+      valueLoc <- doInstruction (star (star intType)) $ GetElementPtr True env [ConstantOperand (C.Int pointerBits 0)] []
+      valueBox <- doInstruction (star intType) $ Load True valueLoc Nothing 0 []
+      value <- getNum valueBox
+
       arg <- getNum (uncurry LocalReference argParam)
-      value <- doInstruction intType $ Add False False (ConstantOperand (C.Int 32 1)) arg []
-      result <- allocNumber value
+      added <- doInstruction intType $ Add False False value arg []
+      result <- allocNumber added
 
       finishBlock (Name "entry") (Do $ Ret (Just result) [])
 
@@ -139,7 +148,7 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
     buildModule = do
       addDefs
 
-      loc <- allocNumber . ConstantOperand . C.Int 32 $ 381
+      loc <- allocNumber . ConstantOperand . C.Int 32 $ 319
 
       funcDef <- inNewScope buildFunction
 
@@ -150,8 +159,6 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
 
       result <- callClosure clos [loc]
       printOperand result
-
-      -- printOperand loc
 
       finishBlock (Name "entry") (Do $ Ret Nothing [])
       finishFunction functionDefaults
