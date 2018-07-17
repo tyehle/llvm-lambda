@@ -45,6 +45,7 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
     addDefs = do
       defineFmtString
       defineGuard
+      defineCheckArity
       finishFunction malloc
       finishFunction exit
       finishFunction printf
@@ -53,11 +54,11 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
     allocNumber num = do
       -- malloc a number
       mem <- doInstruction (star charType) $ callGlobal malloc [ConstantOperand $ C.Int 64 8]
-      loc <- doInstruction (star intType) $ BitCast mem (star intType) []
+      loc <- cast (star intType) mem
       -- set the type tag
       addInstruction $ Do $ Store True loc intTag Nothing 0 []
       -- set the value
-      valueLoc <- doInstruction (star intType) $ GetElementPtr True loc [ConstantOperand (C.Int pointerBits 1)] []
+      valueLoc <- doInstruction (star intType) $ arrayAccess loc 1
       addInstruction $ Do $ Store True valueLoc num Nothing 0 []
       -- return the memory location
       return loc
@@ -68,16 +69,14 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
       -- all sizes are in bytes
       let pointerBytes = fromIntegral pointerBits `quot` 8
       let closureSize = ConstantOperand . C.Int 64 . fromIntegral $ 8 + pointerBytes * length values
-      mem <- doInstruction (star charType) $ callGlobal malloc [closureSize]
-      loc <- doInstruction (star intType) $ BitCast mem (star intType) []
+      loc <- doInstruction (star charType) (callGlobal malloc [closureSize]) >>= cast (star intType)
       -- set the type tag
       addInstruction $ Do $ Store True loc closureTag Nothing 0 []
       -- set number of args
-      arityLoc <- doInstruction (star intType) $ GetElementPtr True loc [ConstantOperand (C.Int pointerBits 1)] []
+      arityLoc <- doInstruction (star intType) $ arrayAccess loc 1
       addInstruction $ Do $ Store True arityLoc (ConstantOperand (C.Int 32 arity)) Nothing 0 []
       -- get a reference to the array
-      arrayMem <- doInstruction (star intType) $ GetElementPtr True loc [ConstantOperand (C.Int pointerBits 2)] []
-      arrayLoc <- doInstruction (star (star intType)) $ BitCast arrayMem (star (star intType)) []
+      arrayLoc <- doInstruction (star intType) (arrayAccess loc 2) >>= cast (star (star intType))
       -- fill in the values in the array
       mapM_ (storePtr arrayLoc) (zip values [0..])
 
@@ -86,7 +85,7 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
       where
         storePtr :: Operand -> (Operand, Integer) -> FreshCodegen ()
         storePtr arrayLoc (ptr, index) = do
-          wherePut <- doInstruction (star (star intType)) $ GetElementPtr True arrayLoc [ConstantOperand (C.Int pointerBits index)] []
+          wherePut <- doInstruction (star (star intType)) $ arrayAccess arrayLoc index
           addInstruction $ Do $ Store True wherePut ptr Nothing 0 []
 
     buildFunction :: FreshCodegen Global
@@ -98,8 +97,7 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
       let env = uncurry LocalReference envParam
 
       -- get a value from the environment
-      valueLoc <- doInstruction (star (star intType)) $ GetElementPtr True env [ConstantOperand (C.Int pointerBits 0)] []
-      valueBox <- doInstruction (star intType) $ Load True valueLoc Nothing 0 []
+      valueBox <- getFromEnv env 0
       value <- getNum valueBox
 
       arg <- getNum (uncurry LocalReference argParam)
@@ -115,6 +113,12 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
       finishFunction functionDef
       return functionDef
 
+      where
+        getFromEnv :: Operand -> Integer -> FreshCodegen Operand
+        getFromEnv env index = do
+          loc <- doInstruction (star (star intType)) $ arrayAccess env 0
+          doInstruction (star intType) $ Load True loc Nothing 0 []
+
     lambdaDefaults :: Global
     lambdaDefaults = functionDefaults { G.returnType = star intType }
 
@@ -123,26 +127,20 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
       -- make sure we've got a closure
       checkTag clos closureTag
       let arity = length args
-      checkArity clos arity
+      checkArity clos (fromIntegral arity)
       -- find where the pointer array starts
-      arrayNoCast <- doInstruction intType $ GetElementPtr True clos [ConstantOperand $ C.Int pointerBits 2] []
-      array <- doInstruction (star (star intType)) $ BitCast arrayNoCast (star (star intType)) []
+      array <- doInstruction intType (arrayAccess clos 2) >>= cast (star (star intType))
       -- get the function
       let functionType = FunctionType (star intType) (star (star intType) : replicate arity (star intType)) False
-      funcNoCast <- doInstruction (star intType) $ GetElementPtr True array [ConstantOperand $ C.Int pointerBits 0] []
-      funcPtr <- doInstruction (star (star functionType)) $ BitCast funcNoCast (star (star functionType)) []
+      funcPtr <- doInstruction (star intType) (arrayAccess array 0) >>= cast (star (star functionType))
       func <- doInstruction (star functionType) $ Load True funcPtr Nothing 0 []
       -- get the environment
-      env <- doInstruction (star (star intType)) $ GetElementPtr True array [ConstantOperand $ C.Int pointerBits 1] []
+      env <- doInstruction (star (star intType)) $ arrayAccess array 1
       -- call the function
       let cc = G.callingConvention lambdaDefaults
           retAttrs = G.returnAttributes lambdaDefaults
           fAttrs = G.functionAttributes lambdaDefaults
       doInstruction (star intType) $ Call Nothing cc retAttrs (Right func) (zip (env:args) $ repeat []) fAttrs []
-
-      where
-        checkArity :: Operand -> Int -> FreshCodegen ()
-        checkArity clos arity = pure ()
 
     buildModule :: FreshCodegen ()
     buildModule = do
@@ -153,9 +151,9 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
       funcDef <- inNewScope buildFunction
 
       let funcRef = C.GlobalReference (star (FunctionType (star intType) [star (star intType), star intType] False)) (G.name funcDef)
-      let funcPtr = ConstantOperand $ C.GetElementPtr True funcRef []-- C.Int 32 0]
-      castFuncPtr <- doInstruction (star intType) $ BitCast funcPtr (star intType) []
-      clos <- allocClosure 1 [castFuncPtr, loc] -- loc isn't used, but its good to test
+      funcPtr <- cast (star intType) $ ConstantOperand funcRef
+
+      clos <- allocClosure 1 [funcPtr, loc]
 
       result <- callClosure clos [loc]
       printOperand result
@@ -239,6 +237,29 @@ defineGuard = do
     }
 
 
+defineCheckArity :: FreshCodegen ()
+defineCheckArity = do
+  let closure = (star intType, Name "closure")
+  let numArgs = (intType, Name "numArgs")
+
+  arityLoc <- doInstruction (star intType) (arrayAccess (uncurry LocalReference closure) 1)
+  arity <- doInstruction intType $ Load True arityLoc Nothing 0 []
+  notEq <- doInstruction boolType $ ICmp IPred.NE arity (uncurry LocalReference numArgs) []
+  finishBlock (Name "entry") $ Do $ CondBr notEq (Name "err") (Name "ok") []
+
+  addInstruction $ Do $ callGlobal exit [ConstantOperand (C.Int 32 2)]
+  finishBlock (Name "err") $ Do $ Unreachable []
+
+  finishBlock (Name "ok") $ Do $ Ret Nothing []
+
+  finishFunction functionDefaults
+    { G.name = Name "checkArity"
+    , G.parameters = ([uncurry Parameter closure [], uncurry Parameter numArgs []], False)
+    , G.returnType = VoidType
+    , G.functionAttributes = [Right InlineHint]
+    }
+
+
 genModule :: Prog -> Module
 genModule (Prog defs expr) = defaultModule { moduleName = "main", moduleDefinitions = numberFmt : buildMain body : externalDefs }
   where
@@ -291,6 +312,14 @@ synthDef :: Def -> FreshCodegen Global
 synthDef (Def name argNames body) = undefined
 
 
+cast :: Type -> Operand -> FreshCodegen Operand
+cast typ input = doInstruction typ $ BitCast input typ []
+
+
+arrayAccess :: Operand -> Integer -> Instruction
+arrayAccess array index = GetElementPtr True array [ConstantOperand $ C.Int pointerBits index] []
+
+
 --         i32*                     i32
 getNum :: Operand -> FreshCodegen Operand
 getNum loc = do
@@ -306,6 +335,14 @@ checkTag actual expected = do
   where
     findGuard = gets $ fromMaybe (error "no guard definition found") . Map.lookup (Name "guard") . defs
     matches name def = G.name def == name
+
+
+checkArity :: Operand -> Integer -> FreshCodegen ()
+checkArity clos numArgs = do
+  def <- findDef
+  addInstruction $ Do $ callGlobal def [clos, ConstantOperand (C.Int 32 numArgs)]
+  where
+    findDef = gets $ fromMaybe (error "no checkArity definition found") . Map.lookup (Name "checkArity") . defs
 
 
 synthExpr :: Expr -> FreshCodegen Operand
