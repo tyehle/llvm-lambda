@@ -389,9 +389,9 @@ synthExpr (Ref name) = do
   return $ env ! name
 synthExpr (App funcName args) = undefined
 synthExpr (AppClos clos args) = undefined
-synthExpr (NewClos closName) = undefined
-synthExpr (SetEnv name binding clos body) = undefined
-synthExpr (GetEnv name clos) = undefined
+synthExpr (NewClos closName size) = undefined
+synthExpr (SetEnv clos index binding body) = undefined
+synthExpr (GetEnv clos index) = undefined
 
 
 doInstruction :: Type -> Instruction -> FreshCodegen Operand
