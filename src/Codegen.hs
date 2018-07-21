@@ -50,19 +50,6 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
       finishFunction exit
       finishFunction printf
 
-    allocNumber :: Operand -> FreshCodegen Operand
-    allocNumber num = do
-      -- malloc a number
-      mem <- doInstruction (star charType) $ callGlobal malloc [ConstantOperand $ C.Int 64 8]
-      loc <- cast (star intType) mem
-      -- set the type tag
-      addInstruction $ Do $ Store True loc intTag Nothing 0 []
-      -- set the value
-      valueLoc <- doInstruction (star intType) $ arrayAccess loc 1
-      addInstruction $ Do $ Store True valueLoc num Nothing 0 []
-      -- return the memory location
-      return loc
-
     allocClosure :: Integer -> [Operand] -> FreshCodegen Operand
     allocClosure arity values = do
       -- need enough memory for two ints and then an array of pointers
@@ -206,15 +193,6 @@ closureTag = ConstantOperand $ C.Int 32 0
 intTag     = ConstantOperand $ C.Int 32 1
 
 
-buildMain :: [Named Instruction] -> Definition
-buildMain body = GlobalDefinition functionDefaults
-  { G.name = Name "main"
-  , G.parameters = ([], False)
-  , G.returnType = VoidType
-  , G.basicBlocks = [BasicBlock (Name "entry") body (Do $ Ret Nothing [])]
-  }
-
-
 defineGuard :: FreshCodegen ()
 defineGuard = do
   let actualParam   = (star intType, Name "actual")
@@ -261,10 +239,41 @@ defineCheckArity = do
 
 
 genModule :: Prog -> Module
-genModule (Prog defs expr) = defaultModule { moduleName = "main", moduleDefinitions = numberFmt : buildMain body : externalDefs }
+genModule (Prog progDefs expr) = defaultModule { moduleName = "main", moduleDefinitions = allDefs }
   where
-    externalDefs :: [Definition]
-    externalDefs = map GlobalDefinition [printf, malloc, free]
+    allDefs :: [Definition]
+    allDefs = map (GlobalDefinition . snd) . Map.toList . defs . execFreshCodegen $ buildModule
+
+    buildModule :: FreshCodegen ()
+    buildModule = do
+      addDefs
+      -- Run codegen for definitions
+
+      -- Run codegen for main
+      result <- synthExpr expr
+
+      -- Print result
+
+      -- TODO: Make sure that synthExpr actually does allocation
+      loc <- allocNumber result
+
+      printOperand loc
+
+      finishBlock (Name "entry") (Do $ Ret Nothing [])
+      finishFunction functionDefaults
+        { G.name = Name "main"
+        , G.parameters = ([], False)
+        , G.returnType = VoidType
+        }
+
+    addDefs :: FreshCodegen ()
+    addDefs = do
+      defineFmtString
+      defineGuard
+      defineCheckArity
+      finishFunction malloc
+      finishFunction exit
+      finishFunction printf
 
     numberFmt :: Definition
     numberFmt = GlobalDefinition globalVariableDefaults
@@ -276,7 +285,6 @@ genModule (Prog defs expr) = defaultModule { moduleName = "main", moduleDefiniti
       }
 
     body :: [Named Instruction]
-
     body = reverse . instructions . execFreshCodegen $ synthExpr expr >>= printResult
     printResult :: Operand -> FreshCodegen ()
     printResult reg = do
@@ -326,6 +334,20 @@ getNum loc = do
   checkTag loc intTag
   valueLoc <- doInstruction (star intType) $ GetElementPtr True loc [ConstantOperand (C.Int pointerBits 1)] []
   doInstruction intType $ Load True valueLoc Nothing 0 []
+
+
+allocNumber :: Operand -> FreshCodegen Operand
+allocNumber num = do
+  -- malloc a number
+  mem <- doInstruction (star charType) $ callGlobal malloc [ConstantOperand $ C.Int 64 8]
+  loc <- cast (star intType) mem
+  -- set the type tag
+  addInstruction $ Do $ Store True loc intTag Nothing 0 []
+  -- set the value
+  valueLoc <- doInstruction (star intType) $ arrayAccess loc 1
+  addInstruction $ Do $ Store True valueLoc num Nothing 0 []
+  -- return the memory location
+  return loc
 
 
 checkTag :: Operand -> Operand -> FreshCodegen ()
