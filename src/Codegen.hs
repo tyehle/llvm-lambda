@@ -188,20 +188,40 @@ genModule (Prog progDefs expr) = defaultModule { moduleName = "main", moduleDefi
     allDefs :: [Definition]
     allDefs = map (GlobalDefinition . snd) . Map.toList . defs . execFreshCodegen $ buildModule
 
+    addGlobalDef :: Def -> FreshCodegen ()
+    addGlobalDef (ClosureDef name envName argNames body) = do
+      let envParam = (star (star intType), Name . BS.toShort . BS.pack $ envName)
+      let argParams = map (\argName -> (star intType, Name . BS.toShort . BS.pack $ argName)) argNames
+
+      -- put all the arguments into the environment
+      oldEnv <- gets environment
+      modifyEnvironment $ Map.insert envName (uncurry LocalReference envParam)
+      let insertions = zipWith Map.insert argNames (map (uncurry LocalReference) argParams)
+      mapM_ modifyEnvironment insertions
+
+      -- generate the function code
+      result <- synthExpr body
+
+      -- reset the environment
+      modifyEnvironment $ const oldEnv
+
+      finishBlock (Name "entry") (Do $ Ret (Just result) [])
+      finishFunction defParams
+        { G.name = Name . BS.toShort . BS.pack $ name
+        , G.parameters = (uncurry Parameter envParam [] : map (flip (uncurry Parameter) []) argParams, False)
+        }
+
     buildModule :: FreshCodegen ()
     buildModule = do
       addDefs
       -- Run codegen for definitions
+      mapM_ addGlobalDef progDefs
 
       -- Run codegen for main
       result <- synthExpr expr
 
       -- Print result
-
-      -- TODO: Make sure that synthExpr actually does allocation
-      loc <- allocNumber result
-
-      printOperand loc
+      printOperand result
 
       finishBlock (Name "entry") (Do $ Ret Nothing [])
       finishFunction functionDefaults
@@ -261,11 +281,11 @@ printOperand loc = do
 
 
 defParams :: Global
-defParams = functionDefaults
+defParams = functionDefaults { G.returnType = star intType }
 
 
 synthDef :: Def -> FreshCodegen Global
-synthDef (Def name argNames body) = undefined
+synthDef (ClosureDef name envName argNames body) = undefined
 
 
 cast :: Type -> Operand -> FreshCodegen Operand
@@ -377,17 +397,19 @@ getFromEnv env index = do
 
 
 synthExpr :: Expr -> FreshCodegen Operand
-synthExpr (Num n) = return . ConstantOperand . C.Int 32 . fromIntegral $ n
+synthExpr (Num n) = allocNumber . ConstantOperand . C.Int 32 . fromIntegral $ n
 
 synthExpr (Plus a b) = do
-  aName <- synthExpr a
-  bName <- synthExpr b
-  doInstruction intType $ Add False False aName bName []
+  aValue <- synthExpr a >>= getNum
+  bValue <- synthExpr b >>= getNum
+  resultValue <- doInstruction intType $ Add False False aValue bValue []
+  allocNumber resultValue
 
 synthExpr (Minus a b) = do
-  aName <- synthExpr a
-  bName <- synthExpr b
-  doInstruction intType $ Sub False False aName bName []
+  aValue <- synthExpr a >>= getNum
+  bValue <- synthExpr b >>= getNum
+  resultValue <- doInstruction intType $ Sub False False aValue bValue []
+  allocNumber resultValue
 
 synthExpr (Let name binding body) = do
   oldEnv <- gets environment

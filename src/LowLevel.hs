@@ -30,7 +30,7 @@ import Fresh
 
 data Prog = Prog [Def] Expr deriving (Eq, Show)
 
-data Def = Def String [String] Expr deriving (Eq, Show)
+data Def = ClosureDef String String [String] Expr deriving (Eq, Show)
 
 data Expr = Num Int
           | Plus Expr Expr
@@ -83,7 +83,7 @@ convert (HL.Lambda args body) = do
   let freeMap = Map.fromList $ zip (Set.toList free) [0..]
   name <- freshFunc
   body' <- convert body
-  tell [Def name ("_env" : args) (subst freeMap (Ref "_env") body')]
+  tell [ClosureDef name "_env" args (subst freeMap (Ref "_env") body')]
   closName <- freshClos
   return . NewClos name . map Ref . Map.keys $ freeMap
 
@@ -92,15 +92,11 @@ convert (HL.App (HL.Ref name) args) = do
   isGlobal <- Set.member name <$> ask
   if isGlobal
     then return $ App name args'
-    else return $ callClosure (Ref name) args'
+    else return $ AppClos (Ref name) args'
 convert (HL.App fn args) = do
   fn' <- convert fn
   args' <- mapM convert args
-  return $ callClosure fn' args'
-
-
-callClosure :: Expr -> [Expr] -> Expr
-callClosure closure args = AppClos closure $ closure : args
+  return $ AppClos fn' args'
 
 
 freshFunc :: FreshT (ReaderT (Set String) (Writer [Def])) String
