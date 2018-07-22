@@ -8,8 +8,8 @@ import qualified LowLevel as LL
 import Codegen
 
 main :: IO ()
--- main = sample >>= BS.putStrLn
-main = generate (LL.runConvert ast globals) >>= BS.putStrLn
+main = sample >>= BS.putStrLn
+-- main = generate (LL.runConvert ast globals) >>= BS.putStrLn
   where
     globals = Set.fromList ["printf"]
     -- simple = Plus (Nat 1) (Plus (Nat 12) (Nat 2))

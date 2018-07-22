@@ -19,6 +19,9 @@ cabal.sandbox.config
 llvm-lambda.cabal
 .HTF/
 *~
+
+# Ignore all generated files
 *.o
 *.s
 *.out
+gen.*

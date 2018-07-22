@@ -50,32 +50,7 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
       finishFunction exit
       finishFunction printf
 
-    allocClosure :: Integer -> [Operand] -> FreshCodegen Operand
-    allocClosure arity values = do
-      -- need enough memory for two ints and then an array of pointers
-      -- all sizes are in bytes
-      let pointerBytes = fromIntegral pointerBits `quot` 8
-      let closureSize = ConstantOperand . C.Int 64 . fromIntegral $ 8 + pointerBytes * length values
-      loc <- doInstruction (star charType) (callGlobal malloc [closureSize]) >>= cast (star intType)
-      -- set the type tag
-      addInstruction $ Do $ Store True loc closureTag Nothing 0 []
-      -- set number of args
-      arityLoc <- doInstruction (star intType) $ arrayAccess loc 1
-      addInstruction $ Do $ Store True arityLoc (ConstantOperand (C.Int 32 arity)) Nothing 0 []
-      -- get a reference to the array
-      arrayLoc <- doInstruction (star intType) (arrayAccess loc 2) >>= cast (star (star intType))
-      -- fill in the values in the array
-      mapM_ (storePtr arrayLoc) (zip values [0..])
-
-      return loc
-
-      where
-        storePtr :: Operand -> (Operand, Integer) -> FreshCodegen ()
-        storePtr arrayLoc (ptr, index) = do
-          wherePut <- doInstruction (star (star intType)) $ arrayAccess arrayLoc index
-          addInstruction $ Do $ Store True wherePut ptr Nothing 0 []
-
-    buildFunction :: FreshCodegen Global
+    buildFunction :: FreshCodegen Name
     buildFunction = do
       let envParam = (star (star intType), Name "env")
       let argParam = (star intType, Name "x")
@@ -93,41 +68,13 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
 
       finishBlock (Name "entry") (Do $ Ret (Just result) [])
 
-      let functionDef = lambdaDefaults
+      let functionDef = defParams
             { G.name = Name "increment"
             , G.parameters = ([uncurry Parameter envParam [], uncurry Parameter argParam []], False)
             }
       finishFunction functionDef
-      return functionDef
 
-      where
-        getFromEnv :: Operand -> Integer -> FreshCodegen Operand
-        getFromEnv env index = do
-          loc <- doInstruction (star (star intType)) $ arrayAccess env 0
-          doInstruction (star intType) $ Load True loc Nothing 0 []
-
-    lambdaDefaults :: Global
-    lambdaDefaults = functionDefaults { G.returnType = star intType }
-
-    callClosure :: Operand -> [Operand] -> FreshCodegen Operand
-    callClosure clos args = do
-      -- make sure we've got a closure
-      checkTag clos closureTag
-      let arity = length args
-      checkArity clos (fromIntegral arity)
-      -- find where the pointer array starts
-      array <- doInstruction intType (arrayAccess clos 2) >>= cast (star (star intType))
-      -- get the function
-      let functionType = FunctionType (star intType) (star (star intType) : replicate arity (star intType)) False
-      funcPtr <- doInstruction (star intType) (arrayAccess array 0) >>= cast (star (star functionType))
-      func <- doInstruction (star functionType) $ Load True funcPtr Nothing 0 []
-      -- get the environment
-      env <- doInstruction (star (star intType)) $ arrayAccess array 1
-      -- call the function
-      let cc = G.callingConvention lambdaDefaults
-          retAttrs = G.returnAttributes lambdaDefaults
-          fAttrs = G.functionAttributes lambdaDefaults
-      doInstruction (star intType) $ Call Nothing cc retAttrs (Right func) (zip (env:args) $ repeat []) fAttrs []
+      return $ G.name functionDef
 
     buildModule :: FreshCodegen ()
     buildModule = do
@@ -135,12 +82,9 @@ sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
 
       loc <- allocNumber . ConstantOperand . C.Int 32 $ 319
 
-      funcDef <- inNewScope buildFunction
+      funcName <- inNewScope buildFunction
 
-      let funcRef = C.GlobalReference (star (FunctionType (star intType) [star (star intType), star intType] False)) (G.name funcDef)
-      funcPtr <- cast (star intType) $ ConstantOperand funcRef
-
-      clos <- allocClosure 1 [funcPtr, loc]
+      clos <- allocClosure funcName [loc]
 
       result <- callClosure clos [loc]
       printOperand result
@@ -316,6 +260,10 @@ printOperand loc = do
   return ()
 
 
+defParams :: Global
+defParams = functionDefaults
+
+
 synthDef :: Def -> FreshCodegen Global
 synthDef (Def name argNames body) = undefined
 
@@ -367,16 +315,80 @@ checkArity clos numArgs = do
     findDef = gets $ fromMaybe (error "no checkArity definition found") . Map.lookup (Name "checkArity") . defs
 
 
+callClosure :: Operand -> [Operand] -> FreshCodegen Operand
+callClosure clos args = do
+  -- make sure we've got a closure
+  checkTag clos closureTag
+  let arity = length args
+  checkArity clos (fromIntegral arity)
+  -- find where the pointer array starts
+  array <- doInstruction intType (arrayAccess clos 2) >>= cast (star (star intType))
+  -- get the function
+  let functionType = FunctionType (star intType) (star (star intType) : replicate arity (star intType)) False
+  funcPtr <- doInstruction (star intType) (arrayAccess array 0) >>= cast (star (star functionType))
+  func <- doInstruction (star functionType) $ Load True funcPtr Nothing 0 []
+  -- get the environment
+  env <- doInstruction (star (star intType)) $ arrayAccess array 1
+  -- call the function
+  let cc = G.callingConvention defParams
+      retAttrs = G.returnAttributes defParams
+      fAttrs = G.functionAttributes defParams
+  doInstruction (star intType) $ Call Nothing cc retAttrs (Right func) (zip (env:args) $ repeat []) fAttrs []
+
+
+allocClosure :: Name -> [Operand] -> FreshCodegen Operand
+allocClosure funcName values = do
+  -- need enough memory for two ints and then an array of pointers
+  -- all sizes are in bytes
+  let pointerBytes = fromIntegral pointerBits `quot` 8
+  let closureSize = ConstantOperand . C.Int 64 . fromIntegral $ 8 + pointerBytes * length values
+  loc <- doInstruction (star charType) (callGlobal malloc [closureSize]) >>= cast (star intType)
+  -- set the type tag
+  addInstruction $ Do $ Store True loc closureTag Nothing 0 []
+  -- set number of args
+  arityLoc <- doInstruction (star intType) $ arrayAccess loc 1
+  arity <- defArity
+  addInstruction $ Do $ Store True arityLoc (ConstantOperand (C.Int 32 arity)) Nothing 0 []
+  -- get a reference to the funcPtr
+  let argTypes = star (star intType) : replicate (fromIntegral arity) (star intType)
+  let funcRef = C.GlobalReference (star (FunctionType (star intType) argTypes False)) funcName
+  funcPtr <- cast (star intType) $ ConstantOperand funcRef
+  -- fill in the array of pointers
+  arrayLoc <- doInstruction (star intType) (arrayAccess loc 2) >>= cast (star (star intType))
+  storePtr arrayLoc (funcPtr, 0)
+  -- fill in the values in the array
+  mapM_ (storePtr arrayLoc) (zip values [1..])
+  return loc
+  where
+    defArity :: FreshCodegen Integer
+    defArity = do
+      global <- gets $ \s -> defs s Map.! funcName
+      return . subtract 1 . fromIntegral . length . fst . G.parameters $ global
+    storePtr :: Operand -> (Operand, Integer) -> FreshCodegen ()
+    storePtr arrayLoc (ptr, index) = do
+      wherePut <- doInstruction (star (star intType)) $ arrayAccess arrayLoc index
+      addInstruction $ Do $ Store True wherePut ptr Nothing 0 []
+
+
+getFromEnv :: Operand -> Integer -> FreshCodegen Operand
+getFromEnv env index = do
+  loc <- doInstruction (star (star intType)) $ arrayAccess env 0
+  doInstruction (star intType) $ Load True loc Nothing 0 []
+
+
 synthExpr :: Expr -> FreshCodegen Operand
 synthExpr (Num n) = return . ConstantOperand . C.Int 32 . fromIntegral $ n
+
 synthExpr (Plus a b) = do
   aName <- synthExpr a
   bName <- synthExpr b
   doInstruction intType $ Add False False aName bName []
+
 synthExpr (Minus a b) = do
   aName <- synthExpr a
   bName <- synthExpr b
   doInstruction intType $ Sub False False aName bName []
+
 synthExpr (Let name binding body) = do
   oldEnv <- gets environment
   bindingName <- synthExpr binding
@@ -384,14 +396,31 @@ synthExpr (Let name binding body) = do
   resultName <- synthExpr body
   modifyEnvironment $ const oldEnv
   return resultName
+
 synthExpr (Ref name) = do
   env <- gets environment
   return $ env ! name
-synthExpr (App funcName args) = undefined
-synthExpr (AppClos clos args) = undefined
-synthExpr (NewClos closName size) = undefined
-synthExpr (SetEnv clos index binding body) = undefined
-synthExpr (GetEnv clos index) = undefined
+
+synthExpr (App funcName argExprs) = do
+  -- find the function in the list of definitions
+  -- TODO: This will break things if a function is not forward declared
+  global <- gets $ \s -> defs s Map.! (Name . BS.toShort . BS.pack $ funcName)
+  -- call the function
+  args <- mapM synthExpr argExprs
+  doInstruction (star intType) $ callGlobal global args
+
+synthExpr (AppClos closExpr argExprs) = do
+  clos <- synthExpr closExpr
+  args <- mapM synthExpr argExprs
+  callClosure clos args
+
+synthExpr (NewClos closName bindings) = do
+  args <- mapM synthExpr bindings
+  allocClosure (Name . BS.toShort . BS.pack $ closName) args
+
+synthExpr (GetEnv closExpr index) = do
+  clos <- synthExpr closExpr
+  getFromEnv clos index
 
 
 doInstruction :: Type -> Instruction -> FreshCodegen Operand
