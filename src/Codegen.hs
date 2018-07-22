@@ -403,20 +403,26 @@ getFromEnv env index = do
   doInstruction (star intType) $ Load True loc Nothing 0 []
 
 
+type IntBinOp = Bool -> Bool -> Operand -> Operand -> InstructionMetadata -> Instruction
+
+numBinOp :: Expr -> Expr -> IntBinOp -> FreshCodegen Operand
+numBinOp a b op = do
+  aValue <- synthExpr a >>= getNum
+  bValue <- synthExpr b >>= getNum
+  resultValue <- doInstruction intType $ op False False aValue bValue []
+  allocNumber resultValue
+
+
 synthExpr :: Expr -> FreshCodegen Operand
 synthExpr (Num n) = allocNumber . ConstantOperand . C.Int 32 . fromIntegral $ n
 
-synthExpr (Plus a b) = do
-  aValue <- synthExpr a >>= getNum
-  bValue <- synthExpr b >>= getNum
-  resultValue <- doInstruction intType $ Add False False aValue bValue []
-  allocNumber resultValue
+synthExpr (Plus a b) = numBinOp a b Add
 
-synthExpr (Minus a b) = do
-  aValue <- synthExpr a >>= getNum
-  bValue <- synthExpr b >>= getNum
-  resultValue <- doInstruction intType $ Sub False False aValue bValue []
-  allocNumber resultValue
+synthExpr (Minus a b) = numBinOp a b Sub
+
+synthExpr (Mult a b) = numBinOp a b Mul
+
+synthExpr (Divide a b) = numBinOp a b (const SDiv)
 
 synthExpr (Let name binding body) = do
   oldEnv <- gets environment

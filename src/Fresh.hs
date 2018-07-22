@@ -67,18 +67,18 @@ instance MonadReader r m => MonadReader r (FreshT m) where
   ask = lift ask
   local f = FreshT . (mapStateT . local) f . freshState
 
-
-a :: FreshT (State Int) String
-a = return "Hi"
-
-b :: FreshT (State Int) Name
-b = a >>= uniqueName
-
-test :: Name
-test = flip evalState 24 . flip evalFreshT (Map.fromList []) $ b
-
-c :: StateT Int Fresh Name
-c = uniqueName "Var"
-
-test2 :: Name
-test2 = flip evalFresh (Map.fromList []) . flip evalStateT 42 $ c
+-- TODO: Add these to a test suite
+-- a :: FreshT (State Int) String
+-- a = return "Hi"
+--
+-- b :: FreshT (State Int) Name
+-- b = a >>= uniqueName
+--
+-- test :: Name
+-- test = flip evalState 24 . flip evalFreshT (Map.fromList []) $ b
+--
+-- c :: StateT Int Fresh Name
+-- c = uniqueName "Var"
+--
+-- test2 :: Name
+-- test2 = flip evalFresh (Map.fromList []) . flip evalStateT 42 $ c

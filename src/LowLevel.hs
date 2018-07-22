@@ -6,7 +6,6 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Control.Monad.Writer
 import Control.Monad.Reader
-import Control.Monad.State
 
 import qualified Expr as HL
 import Scope
@@ -35,6 +34,8 @@ data Def = ClosureDef String String [String] Expr deriving (Eq, Show)
 data Expr = Num Int
           | Plus Expr Expr
           | Minus Expr Expr
+          | Mult Expr Expr
+          | Divide Expr Expr
           | Let String Expr Expr
           | Ref String
           | App String [Expr]
@@ -48,12 +49,14 @@ instance Scope Expr where
   freeVars (Num _) = Set.empty
   freeVars (Plus a b) = freeVars a `Set.union` freeVars b
   freeVars (Minus a b) = freeVars a `Set.union` freeVars b
-  freeVars (Let name binding body) = freeVars binding `Set.union` Set.delete name (freeVars binding)
+  freeVars (Mult a b) = freeVars a `Set.union` freeVars b
+  freeVars (Divide a b) = freeVars a `Set.union` freeVars b
+  freeVars (Let name binding body) = freeVars binding `Set.union` Set.delete name (freeVars body)
   freeVars (Ref name) = Set.singleton name
-  freeVars (App name args) = Set.unions $ map freeVars args
+  freeVars (App name args) = Set.unions $ Set.singleton name : map freeVars args
   freeVars (AppClos fn args) = Set.unions . map freeVars $ fn : args
-  freeVars (NewClos fnName bindings) = Set.unions $ map freeVars bindings
-  freeVars (GetEnv clos index) = freeVars clos
+  freeVars (NewClos fnName bindings) = Set.unions $ Set.singleton fnName : map freeVars bindings
+  freeVars (GetEnv clos _) = freeVars clos
 
 
 runConvert :: HL.Expr -> Set String -> Prog
@@ -84,7 +87,6 @@ convert (HL.Lambda args body) = do
   name <- freshFunc
   body' <- convert body
   tell [ClosureDef name "_env" args (subst freeMap (Ref "_env") body')]
-  closName <- freshClos
   return . NewClos name . map Ref . Map.keys $ freeMap
 
 convert (HL.App (HL.Ref name) args) = do
@@ -104,15 +106,13 @@ freshFunc = do
   i <- next "_f"
   return $ "_f" ++ show i
 
-freshClos :: FreshT (ReaderT (Set String) (Writer [Def])) String
-freshClos = do
-  i <- next "_c"
-  return $ "_c" ++ show i
-
 
 subst :: Map String Integer -> Expr -> Expr -> Expr
-subst vars env n@Num{} = n
+subst _ _ n@Num{} = n
 subst vars env (Plus a b) = Plus (subst vars env a) (subst vars env b)
+subst vars env (Minus a b) = Minus (subst vars env a) (subst vars env b)
+subst vars env (Mult a b) = Mult (subst vars env a) (subst vars env b)
+subst vars env (Divide a b) = Divide (subst vars env a) (subst vars env b)
 subst vars env (Let name binding body) = Let name binding' body'
   where
     binding' = subst vars env binding
