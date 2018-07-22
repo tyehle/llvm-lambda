@@ -362,7 +362,7 @@ allocClosure funcName values = do
   where
     defArity :: FreshCodegen Integer
     defArity = do
-      global <- gets $ \s -> defs s Map.! funcName
+      global <- gets $ \s -> defs s ! funcName
       return . subtract 1 . fromIntegral . length . fst . G.parameters $ global
     storePtr :: Operand -> (Operand, Integer) -> FreshCodegen ()
     storePtr arrayLoc (ptr, index) = do
@@ -404,7 +404,7 @@ synthExpr (Ref name) = do
 synthExpr (App funcName argExprs) = do
   -- find the function in the list of definitions
   -- TODO: This will break things if a function is not forward declared
-  global <- gets $ \s -> defs s Map.! (Name . BS.toShort . BS.pack $ funcName)
+  global <- gets $ \s -> defs s ! (Name . BS.toShort . BS.pack $ funcName)
   -- call the function
   args <- mapM synthExpr argExprs
   doInstruction (star intType) $ callGlobal global args
