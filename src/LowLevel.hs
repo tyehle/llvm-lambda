@@ -65,16 +65,19 @@ runConvert body globals = Prog (reverse newDefs) newBody
     (newBody, newDefs) = runWriter . flip runReaderT globals . flip evalFreshT Map.empty . convert $ body
 
 
+convertNumBinOp :: HL.Expr -> HL.Expr -> (Expr -> Expr -> Expr) -> FreshT (ReaderT (Set String) (Writer [Def])) Expr
+convertNumBinOp a b op = do
+  a' <- convert a
+  b' <- convert b
+  return $ op a' b'
+
+
 convert :: HL.Expr -> FreshT (ReaderT (Set String) (Writer [Def])) Expr
 convert (HL.Nat n) = return $ Num n
-convert (HL.Plus a b) = do
-  a' <- convert a
-  b' <- convert b
-  return $ Plus a' b'
-convert (HL.Minus a b) = do
-  a' <- convert a
-  b' <- convert b
-  return $ Minus a' b'
+convert (HL.Plus a b) = convertNumBinOp a b Plus
+convert (HL.Minus a b) = convertNumBinOp a b Minus
+convert (HL.Mult a b) = convertNumBinOp a b Mult
+convert (HL.Divide a b) = convertNumBinOp a b Divide
 convert (HL.Let name binding body) = do
   bind <- convert binding
   body' <- convert body

@@ -8,6 +8,8 @@ import Scope
 data Expr = Nat Int
           | Plus Expr Expr
           | Minus Expr Expr
+          | Mult Expr Expr
+          | Divide Expr Expr
           | Ref String
           | Let String Expr Expr
           | Lambda [String] Expr
@@ -19,6 +21,8 @@ instance Scope Expr where
   freeVars (Nat _) = Set.empty
   freeVars (Plus a b) = Set.union (freeVars a) (freeVars b)
   freeVars (Minus a b) = Set.union (freeVars a) (freeVars b)
+  freeVars (Mult a b) = Set.union (freeVars a) (freeVars b)
+  freeVars (Divide a b) = Set.union (freeVars a) (freeVars b)
   freeVars (Ref name) = Set.singleton name
   freeVars (Let name binding body) = Set.union (freeVars binding) $ Set.delete name (freeVars body)
   freeVars (Lambda args body) = freeVars body `Set.difference` Set.fromList args
