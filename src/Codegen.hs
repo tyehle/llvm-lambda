@@ -34,67 +34,67 @@ generate :: Prog -> IO ByteString
 generate prog = withContext $ \ctx -> withModuleFromAST ctx (genModule prog) moduleLLVMAssembly
 
 
-sample :: IO ByteString
-sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
-  where
-    ir :: Module
-    ir = let globals = map (GlobalDefinition . snd) . Map.toList . defs . execFreshCodegen $ buildModule
-           in defaultModule { moduleName = "main", moduleDefinitions = globals }
-
-    addDefs :: FreshCodegen ()
-    addDefs = do
-      defineFmtString
-      defineGuard
-      defineCheckArity
-      finishFunction malloc
-      finishFunction exit
-      finishFunction printf
-
-    buildFunction :: FreshCodegen Name
-    buildFunction = do
-      let envParam = (star (star intType), Name "env")
-      let argParam = (star intType, Name "x")
-
-      -- get a refernece to the environment
-      let env = uncurry LocalReference envParam
-
-      -- get a value from the environment
-      valueBox <- getFromEnv env 0
-      value <- getNum valueBox
-
-      arg <- getNum (uncurry LocalReference argParam)
-      added <- doInstruction intType $ Add False False value arg []
-      result <- allocNumber added
-
-      finishBlock (Name "entry") (Do $ Ret (Just result) [])
-
-      let functionDef = defParams
-            { G.name = Name "increment"
-            , G.parameters = ([uncurry Parameter envParam [], uncurry Parameter argParam []], False)
-            }
-      finishFunction functionDef
-
-      return $ G.name functionDef
-
-    buildModule :: FreshCodegen ()
-    buildModule = do
-      addDefs
-
-      loc <- allocNumber . ConstantOperand . C.Int 32 $ 319
-
-      funcName <- inNewScope buildFunction
-
-      clos <- allocClosure funcName [loc]
-
-      result <- callClosure clos [loc]
-      printOperand result
-
-      finishBlock (Name "entry") (Do $ Ret Nothing [])
-      finishFunction functionDefaults
-        { G.name = Name "main"
-        , G.parameters = ([], False)
-        , G.returnType = VoidType
-        }
+-- sample :: IO ByteString
+-- sample = withContext $ \ctx -> withModuleFromAST ctx ir moduleLLVMAssembly
+--   where
+--     ir :: Module
+--     ir = let globals = map (GlobalDefinition . snd) . Map.toList . defs . execFreshCodegen $ buildModule
+--            in defaultModule { moduleName = "main", moduleDefinitions = globals }
+--
+--     addDefs :: FreshCodegen ()
+--     addDefs = do
+--       defineFmtString
+--       defineGuard
+--       defineCheckArity
+--       finishFunction malloc
+--       finishFunction exit
+--       finishFunction printf
+--
+--     buildFunction :: FreshCodegen Name
+--     buildFunction = do
+--       let envParam = (star (star intType), Name "env")
+--       let argParam = (star intType, Name "x")
+--
+--       -- get a refernece to the environment
+--       let env = uncurry LocalReference envParam
+--
+--       -- get a value from the environment
+--       valueBox <- getFromEnv env 0
+--       value <- getNum valueBox
+--
+--       arg <- getNum (uncurry LocalReference argParam)
+--       added <- doInstruction intType $ Add False False value arg []
+--       result <- allocNumber added
+--
+--       finishBlock (Name "entry") (Do $ Ret (Just result) [])
+--
+--       let functionDef = defParams
+--             { G.name = Name "increment"
+--             , G.parameters = ([uncurry Parameter envParam [], uncurry Parameter argParam []], False)
+--             }
+--       finishFunction functionDef
+--
+--       return $ G.name functionDef
+--
+--     buildModule :: FreshCodegen ()
+--     buildModule = do
+--       addDefs
+--
+--       loc <- allocNumber . ConstantOperand . C.Int 32 $ 319
+--
+--       funcName <- inNewScope buildFunction
+--
+--       clos <- allocClosure funcName [loc]
+--
+--       result <- callClosure clos [loc]
+--       printOperand result
+--
+--       finishBlock (Name "entry") (Do $ Ret Nothing [])
+--       finishFunction functionDefaults
+--         { G.name = Name "main"
+--         , G.parameters = ([], False)
+--         , G.returnType = VoidType
+--         }
 
 
 newtype CodegenT m a =
@@ -151,7 +151,7 @@ defineGuard = do
 
   finishBlock (Name "ok") $ Do $ Ret Nothing []
 
-  finishFunction functionDefaults
+  defineFunction functionDefaults
     { G.name = Name "guard"
     , G.parameters = ([uncurry Parameter actualParam [], uncurry Parameter expectedParam []], False)
     , G.returnType = VoidType
@@ -174,7 +174,7 @@ defineCheckArity = do
 
   finishBlock (Name "ok") $ Do $ Ret Nothing []
 
-  finishFunction functionDefaults
+  defineFunction functionDefaults
     { G.name = Name "checkArity"
     , G.parameters = ([uncurry Parameter closure [], uncurry Parameter numArgs []], False)
     , G.returnType = VoidType
@@ -188,15 +188,24 @@ genModule (Prog progDefs expr) = defaultModule { moduleName = "main", moduleDefi
     allDefs :: [Definition]
     allDefs = map (GlobalDefinition . snd) . Map.toList . defs . execFreshCodegen $ buildModule
 
+    declareDef :: Def -> FreshCodegen ()
+    declareDef (ClosureDef name envName argNames body) =
+      modify $ \s -> s { defs = Map.insert defName emptyDef (defs s) }
+      where
+        defName = mkName name
+        argParam argName = Parameter (star intType) (mkName argName) []
+        params = Parameter (star (star intType)) (mkName envName) [] : map argParam argNames
+        emptyDef = defParams { G.name = defName , G.parameters = (params , False) }
+
     addGlobalDef :: Def -> FreshCodegen ()
     addGlobalDef (ClosureDef name envName argNames body) = do
-      let envParam = (star (star intType), Name . BS.toShort . BS.pack $ envName)
-      let argParams = map (\argName -> (star intType, Name . BS.toShort . BS.pack $ argName)) argNames
+      let env = LocalReference (star (star intType)) (mkName envName)
+      let mkArg argName = LocalReference (star intType) (mkName argName)
 
       -- put all the arguments into the environment
       oldEnv <- gets environment
-      modifyEnvironment $ Map.insert envName (uncurry LocalReference envParam)
-      let insertions = zipWith Map.insert argNames (map (uncurry LocalReference) argParams)
+      modifyEnvironment $ Map.insert envName env
+      let insertions = zipWith Map.insert argNames (map mkArg argNames)
       mapM_ modifyEnvironment insertions
 
       -- generate the function code
@@ -206,15 +215,13 @@ genModule (Prog progDefs expr) = defaultModule { moduleName = "main", moduleDefi
       modifyEnvironment $ const oldEnv
 
       finishBlock (Name "entry") (Do $ Ret (Just result) [])
-      finishFunction defParams
-        { G.name = Name . BS.toShort . BS.pack $ name
-        , G.parameters = (uncurry Parameter envParam [] : map (flip (uncurry Parameter) []) argParams, False)
-        }
+      finishFunction $ mkName name
 
     buildModule :: FreshCodegen ()
     buildModule = do
       addDefs
       -- Run codegen for definitions
+      mapM_ declareDef progDefs
       mapM_ addGlobalDef progDefs
 
       -- Run codegen for main
@@ -224,7 +231,7 @@ genModule (Prog progDefs expr) = defaultModule { moduleName = "main", moduleDefi
       printOperand result
 
       finishBlock (Name "entry") (Do $ Ret Nothing [])
-      finishFunction functionDefaults
+      defineFunction functionDefaults
         { G.name = Name "main"
         , G.parameters = ([], False)
         , G.returnType = VoidType
@@ -235,9 +242,9 @@ genModule (Prog progDefs expr) = defaultModule { moduleName = "main", moduleDefi
       defineFmtString
       defineGuard
       defineCheckArity
-      finishFunction malloc
-      finishFunction exit
-      finishFunction printf
+      defineFunction malloc
+      defineFunction exit
+      defineFunction printf
 
     numberFmt :: Definition
     numberFmt = GlobalDefinition globalVariableDefaults
@@ -382,7 +389,7 @@ allocClosure funcName values = do
   where
     defArity :: FreshCodegen Integer
     defArity = do
-      global <- gets $ \s -> defs s ! funcName
+      global <- gets $ \s -> fromMaybe (error ("Function not defined: " ++ show funcName)) $ Map.lookup funcName (defs s)
       return . subtract 1 . fromIntegral . length . fst . G.parameters $ global
     storePtr :: Operand -> (Operand, Integer) -> FreshCodegen ()
     storePtr arrayLoc (ptr, index) = do
@@ -421,12 +428,11 @@ synthExpr (Let name binding body) = do
 
 synthExpr (Ref name) = do
   env <- gets environment
-  return $ env ! name
+  return . fromMaybe (error ("Unbound name: " ++ name)) $ Map.lookup name env
 
 synthExpr (App funcName argExprs) = do
   -- find the function in the list of definitions
-  -- TODO: This will break things if a function is not forward declared
-  global <- gets $ \s -> defs s ! (Name . BS.toShort . BS.pack $ funcName)
+  global <- gets $ \s -> fromMaybe (error ("Function not defined: " ++ funcName)) $ Map.lookup (mkName funcName) (defs s)
   -- call the function
   args <- mapM synthExpr argExprs
   doInstruction (star intType) $ callGlobal global args
@@ -438,7 +444,7 @@ synthExpr (AppClos closExpr argExprs) = do
 
 synthExpr (NewClos closName bindings) = do
   args <- mapM synthExpr bindings
-  allocClosure (Name . BS.toShort . BS.pack $ closName) args
+  allocClosure (mkName closName) args
 
 synthExpr (GetEnv closExpr index) = do
   clos <- synthExpr closExpr
@@ -459,11 +465,17 @@ finishBlock name term = do
   modify $ \s -> s { blocks = block : blocks s, instructions = [] }
 
 
-finishFunction :: Global -> FreshCodegen ()
-finishFunction defaults = do
+defineFunction :: Global -> FreshCodegen ()
+defineFunction emptyDef = do
   blocks <- gets $ reverse . blocks
-  let def = defaults { G.basicBlocks = blocks }
+  let def = emptyDef { G.basicBlocks = blocks }
   modify $ \s -> s { blocks = [], defs = Map.insert (G.name def) def (defs s) }
+
+
+finishFunction :: Name -> FreshCodegen ()
+finishFunction name = do
+  emptyDef <- gets $ fromMaybe (error ("No definition to finish: " ++ show name)) . Map.lookup name . defs
+  defineFunction emptyDef
 
 
 inNewScope :: FreshCodegen a -> FreshCodegen a
