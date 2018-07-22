@@ -4,31 +4,27 @@ module Codegen where
 
 import Data.Char (ord)
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as BS
-import qualified Data.ByteString.Short as BS (toShort)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
-import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Maybe (fromMaybe)
 import Control.Monad.State
 import Control.Monad.Identity
 import Data.Word (Word32)
 
-import LLVM.AST
+import LLVM.AST hiding (value, index, expected, args)
 import LLVM.AST.DataLayout
 import LLVM.AST.FunctionAttribute
 import qualified LLVM.AST.IntegerPredicate as IPred
 import qualified LLVM.AST.Global as G
 import qualified LLVM.AST.Constant as C
 import LLVM.AST.AddrSpace (AddrSpace(AddrSpace))
-import LLVM.AST.CallingConvention (CallingConvention(C))
 import LLVM.AST.Linkage (Linkage(Private))
 import LLVM.Context
 import LLVM.Module hiding (Module)
 
-import LowLevel hiding (callClosure)
+import LowLevel
 import Fresh
 import LibCDefs
-import Scope
 
 generate :: Prog -> IO ByteString
 generate prog = withContext $ \ctx -> withModuleFromAST ctx (genModule prog) moduleLLVMAssembly
@@ -189,7 +185,7 @@ genModule (Prog progDefs expr) = defaultModule { moduleName = "main", moduleDefi
     allDefs = map (GlobalDefinition . snd) . Map.toList . defs . execFreshCodegen $ buildModule
 
     declareDef :: Def -> FreshCodegen ()
-    declareDef (ClosureDef name envName argNames body) =
+    declareDef (ClosureDef name envName argNames _) =
       modify $ \s -> s { defs = Map.insert defName emptyDef (defs s) }
       where
         defName = mkName name
@@ -246,23 +242,6 @@ genModule (Prog progDefs expr) = defaultModule { moduleName = "main", moduleDefi
       defineFunction exit
       defineFunction printf
 
-    numberFmt :: Definition
-    numberFmt = GlobalDefinition globalVariableDefaults
-      { G.name = Name "fmt"
-      , G.linkage = Private
-      , G.isConstant = True
-      , G.type' = ArrayType 4 charType
-      , G.initializer = Just $ C.Array charType [C.Int 8 37, C.Int 8 100, C.Int 8 10, C.Int 8 0]
-      }
-
-    body :: [Named Instruction]
-    body = reverse . instructions . execFreshCodegen $ synthExpr expr >>= printResult
-    printResult :: Operand -> FreshCodegen ()
-    printResult reg = do
-      let refType = PointerType (ArrayType 4 charType) (AddrSpace 0)
-      let fmtArg = ConstantOperand $ C.GetElementPtr True (C.GlobalReference refType (Name "fmt")) [C.Int 32 0, C.Int 32 0]
-      addInstruction $ Do $ callGlobal printf [fmtArg, reg]
-
 
 defineFmtString :: FreshCodegen ()
 defineFmtString = modify $ \s -> s { defs = Map.insert name global (defs s) }
@@ -289,10 +268,6 @@ printOperand loc = do
 
 defParams :: Global
 defParams = functionDefaults { G.returnType = star intType }
-
-
-synthDef :: Def -> FreshCodegen Global
-synthDef (ClosureDef name envName argNames body) = undefined
 
 
 cast :: Type -> Operand -> FreshCodegen Operand
@@ -331,7 +306,6 @@ checkTag actual expected = do
   addInstruction $ Do $ callGlobal guardDef [actual, expected]
   where
     findGuard = gets $ fromMaybe (error "no guard definition found") . Map.lookup (Name "guard") . defs
-    matches name def = G.name def == name
 
 
 checkArity :: Operand -> Integer -> FreshCodegen ()
@@ -399,7 +373,7 @@ allocClosure funcName values = do
 
 getFromEnv :: Operand -> Integer -> FreshCodegen Operand
 getFromEnv env index = do
-  loc <- doInstruction (star (star intType)) $ arrayAccess env 0
+  loc <- doInstruction (star (star intType)) $ arrayAccess env index
   doInstruction (star intType) $ Load True loc Nothing 0 []
 
 
@@ -473,8 +447,8 @@ finishBlock name term = do
 
 defineFunction :: Global -> FreshCodegen ()
 defineFunction emptyDef = do
-  blocks <- gets $ reverse . blocks
-  let def = emptyDef { G.basicBlocks = blocks }
+  definedBlocks <- gets $ reverse . blocks
+  let def = emptyDef { G.basicBlocks = definedBlocks }
   modify $ \s -> s { blocks = [], defs = Map.insert (G.name def) def (defs s) }
 
 

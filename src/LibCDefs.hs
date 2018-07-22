@@ -2,11 +2,8 @@
 
 module LibCDefs where
 
-import Data.ByteString.Short (ShortByteString)
-
 import LLVM.AST hiding (functionAttributes)
 import LLVM.AST.Global
-import LLVM.AST.Constant
 import LLVM.AST.AddrSpace
 import LLVM.AST.FunctionAttribute
 
