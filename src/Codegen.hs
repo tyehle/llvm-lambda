@@ -398,6 +398,8 @@ synthExpr (Mult a b) = numBinOp a b Mul
 
 synthExpr (Divide a b) = numBinOp a b (const SDiv)
 
+synthExpr (If c t f) = undefined
+
 synthExpr (Let name binding body) = do
   oldEnv <- gets environment
   bindingName <- synthExpr binding

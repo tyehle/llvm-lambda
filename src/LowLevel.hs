@@ -36,6 +36,7 @@ data Expr = Num Int
           | Minus Expr Expr
           | Mult Expr Expr
           | Divide Expr Expr
+          | If Expr Expr Expr
           | Let String Expr Expr
           | Ref String
           | App String [Expr]
@@ -51,6 +52,7 @@ instance Scope Expr where
   freeVars (Minus a b) = freeVars a `Set.union` freeVars b
   freeVars (Mult a b) = freeVars a `Set.union` freeVars b
   freeVars (Divide a b) = freeVars a `Set.union` freeVars b
+  freeVars (If c t f) = freeVars c `Set.union` freeVars t `Set.union` freeVars f
   freeVars (Let name binding body) = freeVars binding `Set.union` Set.delete name (freeVars body)
   freeVars (Ref name) = Set.singleton name
   freeVars (App name args) = Set.unions $ Set.singleton name : map freeVars args
@@ -78,6 +80,11 @@ convert (HL.Plus a b) = convertNumBinOp a b Plus
 convert (HL.Minus a b) = convertNumBinOp a b Minus
 convert (HL.Mult a b) = convertNumBinOp a b Mult
 convert (HL.Divide a b) = convertNumBinOp a b Divide
+convert (HL.If c t f) = do
+  c' <- convert c
+  t' <- convert t
+  f' <- convert f
+  return $ If c' t' f'
 convert (HL.Let name binding body) = do
   bind <- convert binding
   body' <- convert body
@@ -116,6 +123,7 @@ subst vars env (Plus a b) = Plus (subst vars env a) (subst vars env b)
 subst vars env (Minus a b) = Minus (subst vars env a) (subst vars env b)
 subst vars env (Mult a b) = Mult (subst vars env a) (subst vars env b)
 subst vars env (Divide a b) = Divide (subst vars env a) (subst vars env b)
+subst vars env (If c t f) = If (subst vars env c) (subst vars env t) (subst vars env f)
 subst vars env (Let name binding body) = Let name binding' body'
   where
     binding' = subst vars env binding
