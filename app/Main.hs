@@ -9,7 +9,7 @@ import Codegen
 
 main :: IO ()
 -- main = sample >>= BS.putStrLn
-main = generate (LL.runConvert complex globals) >>= BS.putStrLn
+main = generate (LL.runConvert ifs globals) >>= BS.putStrLn
   where
     globals = Set.fromList ["printf"]
     -- simple = Plus (Nat 1) (Nat 2)
@@ -25,3 +25,5 @@ main = generate (LL.runConvert complex globals) >>= BS.putStrLn
                 Let "a" (App (Ref "mk-add") [Nat 1]) $
                   Let "b" (App (Ref "mk-add") [Nat 2]) $
                     Plus (App (Ref "a") [Nat 3]) (App (Ref "b") [Nat 5])
+    -- (if0 0 1 2)
+    ifs = If0 (Nat 0) (Nat 1) (Nat 2)

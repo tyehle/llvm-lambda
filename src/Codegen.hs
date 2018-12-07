@@ -101,6 +101,7 @@ type Env = Map String Operand
 
 data CodegenState = CodegenState
   { defs :: Map Name Global
+  , blockName :: Maybe Name
   , blocks :: [BasicBlock]
   , instructions :: [Named Instruction]
   , environment :: Env
@@ -122,7 +123,7 @@ type FreshCodegen = FreshT Codegen
 execFreshCodegen :: FreshCodegen a -> CodegenState
 execFreshCodegen = flip execCodegen emptyState . flip evalFreshT Map.empty
   where
-    emptyState = CodegenState { defs=Map.empty, blocks=[], instructions=[], environment=Map.empty }
+    emptyState = CodegenState { defs=Map.empty, blockName=Nothing, blocks=[], instructions=[], environment=Map.empty }
 
 
 pointerBits :: Word32
@@ -138,14 +139,20 @@ defineGuard = do
   let actualParam   = (star intType, Name "actual")
   let expectedParam = (intType, Name "expected")
 
+  errBlock <- uniqueName "err"
+  okBlock <- uniqueName "ok"
+
+  uniqueName "entry" >>= startBlock
   actualValue <- doInstruction intType $ Load True (uncurry LocalReference actualParam) Nothing 0 []
   notEq <- doInstruction boolType $ ICmp IPred.NE actualValue (uncurry LocalReference expectedParam) []
-  finishBlock (Name "entry") $ Do $ CondBr notEq (Name "err") (Name "ok") []
+  finishBlock $ Do $ CondBr notEq errBlock okBlock []
 
+  startBlock errBlock
   addInstruction $ Do $ callGlobal exit [ConstantOperand (C.Int 32 1)]
-  finishBlock (Name "err") $ Do $ Unreachable []
+  finishBlock $ Do $ Unreachable []
 
-  finishBlock (Name "ok") $ Do $ Ret Nothing []
+  startBlock okBlock
+  finishBlock $ Do $ Ret Nothing []
 
   defineFunction functionDefaults
     { G.name = Name "guard"
@@ -160,15 +167,21 @@ defineCheckArity = do
   let closure = (star intType, Name "closure")
   let numArgs = (intType, Name "numArgs")
 
+  errBlock <- uniqueName "err"
+  okBlock <- uniqueName "ok"
+
+  uniqueName "entry" >>= startBlock
   arityLoc <- doInstruction (star intType) (arrayAccess (uncurry LocalReference closure) 1)
   arity <- doInstruction intType $ Load True arityLoc Nothing 0 []
   notEq <- doInstruction boolType $ ICmp IPred.NE arity (uncurry LocalReference numArgs) []
-  finishBlock (Name "entry") $ Do $ CondBr notEq (Name "err") (Name "ok") []
+  finishBlock $ Do $ CondBr notEq errBlock okBlock []
 
+  startBlock errBlock
   addInstruction $ Do $ callGlobal exit [ConstantOperand (C.Int 32 2)]
-  finishBlock (Name "err") $ Do $ Unreachable []
+  finishBlock $ Do $ Unreachable []
 
-  finishBlock (Name "ok") $ Do $ Ret Nothing []
+  startBlock okBlock
+  finishBlock $ Do $ Ret Nothing []
 
   defineFunction functionDefaults
     { G.name = Name "checkArity"
@@ -195,6 +208,7 @@ genModule (Prog progDefs expr) = defaultModule { moduleName = "main", moduleDefi
 
     addGlobalDef :: Def -> FreshCodegen ()
     addGlobalDef (ClosureDef name envName argNames body) = do
+      uniqueName "entry" >>= startBlock
       let env = LocalReference (star (star intType)) (mkName envName)
       let mkArg argName = LocalReference (star intType) (mkName argName)
 
@@ -210,7 +224,7 @@ genModule (Prog progDefs expr) = defaultModule { moduleName = "main", moduleDefi
       -- reset the environment
       modifyEnvironment $ const oldEnv
 
-      finishBlock (Name "entry") (Do $ Ret (Just result) [])
+      finishBlock (Do $ Ret (Just result) [])
       finishFunction $ mkName name
 
     buildModule :: FreshCodegen ()
@@ -221,12 +235,13 @@ genModule (Prog progDefs expr) = defaultModule { moduleName = "main", moduleDefi
       mapM_ addGlobalDef progDefs
 
       -- Run codegen for main
+      uniqueName "entry" >>= startBlock
       result <- synthExpr expr
 
       -- Print result
       printOperand result
 
-      finishBlock (Name "entry") (Do $ Ret Nothing [])
+      finishBlock (Do $ Ret Nothing [])
       defineFunction functionDefaults
         { G.name = Name "main"
         , G.parameters = ([], False)
@@ -387,6 +402,27 @@ numBinOp a b op = do
   allocNumber resultValue
 
 
+synthIf0 :: Expr -> Expr -> Expr -> FreshCodegen Operand
+synthIf0 c t f = do
+  condInt <- synthExpr c >>= getNum
+  condValue <- doInstruction boolType $ ICmp IPred.EQ condInt (ConstantOperand $ C.Int 32 0) []
+  trueLabel <- uniqueName "trueBlock"
+  falseLabel <- uniqueName "falseBlock"
+  exitLabel <- uniqueName "ifExit"
+  finishBlock $ Do $  CondBr condValue trueLabel falseLabel []
+  -- Define the true block
+  startBlock trueLabel
+  trueValue <- synthExpr t
+  finishBlock $ Do $ Br exitLabel []
+  -- Define the false block
+  startBlock falseLabel
+  falseValue <- synthExpr f
+  finishBlock $ Do $ Br exitLabel []
+  -- get the correct output
+  startBlock exitLabel
+  doInstruction (star intType) $ Phi (star intType) [(trueValue, trueLabel), (falseValue, falseLabel)] []
+
+
 synthExpr :: Expr -> FreshCodegen Operand
 synthExpr (Num n) = allocNumber . ConstantOperand . C.Int 32 . fromIntegral $ n
 
@@ -398,7 +434,7 @@ synthExpr (Mult a b) = numBinOp a b Mul
 
 synthExpr (Divide a b) = numBinOp a b (const SDiv)
 
-synthExpr (If c t f) = undefined
+synthExpr (If0 c t f) = synthIf0 c t f
 
 synthExpr (Let name binding body) = do
   oldEnv <- gets environment
@@ -440,11 +476,20 @@ doInstruction typ instr = do
   return $ LocalReference typ myName
 
 
-finishBlock :: Name -> Named Terminator -> FreshCodegen ()
-finishBlock name term = do
+startBlock :: Name -> FreshCodegen ()
+startBlock name = do
+  currentName <- gets blockName
+  case currentName of
+    Nothing -> modify $ \s -> s { blockName = Just name }
+    (Just n) -> error $ "Cant start block " ++ show name ++ "! Already working on block " ++ show n
+
+
+finishBlock :: Named Terminator -> FreshCodegen ()
+finishBlock term = do
+  name <- gets $ fromMaybe (error "No block started!") . blockName
   instrs <- gets $ reverse . instructions
   let block = BasicBlock name instrs term
-  modify $ \s -> s { blocks = block : blocks s, instructions = [] }
+  modify $ \s -> s { blockName = Nothing, blocks = block : blocks s, instructions = [] }
 
 
 defineFunction :: Global -> FreshCodegen ()
