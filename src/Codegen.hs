@@ -354,6 +354,7 @@ callClosure clos args = do
 
 allocClosure :: Name -> [Operand] -> FreshCodegen Operand
 allocClosure funcName values = do
+  -- tag: i32, arity: i32, funcPointer: ptr, envValues: ptr ...
   -- need enough memory for two ints and then an array of pointers
   -- all sizes are in bytes
   let pointerBytes = fromIntegral pointerBits `quot` 8

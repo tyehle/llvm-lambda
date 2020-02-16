@@ -21,6 +21,10 @@ description:         Please see the README on Github at <https://github.com/tyeh
 
 dependencies:
 - base >= 4.7 && < 5
+- atto-lisp
+- attoparsec
+- utf8-string
+- text
 
 library:
   source-dirs: src
