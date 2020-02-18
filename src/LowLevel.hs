@@ -46,7 +46,7 @@ data Expr = Num Int
           | App String [Expr]
           | AppClos Expr [Expr]
           | NewClos String [Expr]
-          | GetEnv Expr Integer
+          | GetEnv String Integer
           deriving (Eq, Show)
 
 
@@ -62,7 +62,7 @@ instance Scope Expr where
   freeVars (App name args) = Set.unions $ Set.singleton name : map freeVars args
   freeVars (AppClos fn args) = Set.unions . map freeVars $ fn : args
   freeVars (NewClos fnName bindings) = Set.unions $ Set.singleton fnName : map freeVars bindings
-  freeVars (GetEnv clos _) = freeVars clos
+  freeVars (GetEnv envName _) = Set.empty
 
 
 runConvert :: HL.Expr -> Set String -> Prog
@@ -100,7 +100,7 @@ convert (HL.Lambda args body) = do
   let freeMap = Map.fromList $ zip (Set.toList free) [0..]
   name <- freshFunc
   body' <- convert body
-  tell [ClosureDef name "_env" args (subst freeMap (Ref "_env") body')]
+  tell [ClosureDef name "_env" args (subst freeMap "_env" body')]
   return . NewClos name . map Ref . Map.keys $ freeMap
 
 convert (HL.App (HL.Ref name) args) = do
@@ -121,21 +121,21 @@ freshFunc = do
   return $ "_f" ++ show i
 
 
-subst :: Map String Integer -> Expr -> Expr -> Expr
+subst :: Map String Integer -> String -> Expr -> Expr
 subst _ _ n@Num{} = n
-subst vars env (Plus a b) = Plus (subst vars env a) (subst vars env b)
-subst vars env (Minus a b) = Minus (subst vars env a) (subst vars env b)
-subst vars env (Mult a b) = Mult (subst vars env a) (subst vars env b)
-subst vars env (Divide a b) = Divide (subst vars env a) (subst vars env b)
-subst vars env (If0 c t f) = If0 (subst vars env c) (subst vars env t) (subst vars env f)
-subst vars env (Let name binding body) = Let name binding' body'
+subst vars envName (Plus a b) = Plus (subst vars envName a) (subst vars envName b)
+subst vars envName (Minus a b) = Minus (subst vars envName a) (subst vars envName b)
+subst vars envName (Mult a b) = Mult (subst vars envName a) (subst vars envName b)
+subst vars envName (Divide a b) = Divide (subst vars envName a) (subst vars envName b)
+subst vars envName (If0 c t f) = If0 (subst vars envName c) (subst vars envName t) (subst vars envName f)
+subst vars envName (Let name binding body) = Let name binding' body'
   where
-    binding' = subst vars env binding
-    body' = subst (Map.delete name vars) env body
-subst vars env (Ref name) = case Map.lookup name vars of
-  Just index -> GetEnv env index
+    binding' = subst vars envName binding
+    body' = subst (Map.delete name vars) envName body
+subst vars envName (Ref name) = case Map.lookup name vars of
+  Just index -> GetEnv envName index
   Nothing    -> Ref name
-subst vars env (AppClos func args) = AppClos (subst vars env func) (map (subst vars env) args)
-subst vars env (App name args) = App name $ map (subst vars env) args
-subst vars env (NewClos name bindings) = NewClos name $ map (subst vars env) bindings
-subst vars env (GetEnv clos index) = GetEnv (subst vars env clos) index
+subst vars envName (AppClos func args) = AppClos (subst vars envName func) (map (subst vars envName) args)
+subst vars envName (App name args) = App name $ map (subst vars envName) args
+subst vars envName (NewClos name bindings) = NewClos name $ map (subst vars envName) bindings
+subst vars _ (GetEnv envName index) = GetEnv envName index

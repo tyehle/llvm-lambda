@@ -465,9 +465,9 @@ synthExpr (NewClos closName bindings) = do
   args <- mapM synthExpr bindings
   allocClosure (mkName closName) args
 
-synthExpr (GetEnv closExpr index) = do
-  clos <- synthExpr closExpr
-  getFromEnv clos index
+synthExpr (GetEnv envName index) = do
+  env <- synthExpr (Ref envName)
+  getFromEnv env index
 
 
 doInstruction :: Type -> Instruction -> FreshCodegen Operand
