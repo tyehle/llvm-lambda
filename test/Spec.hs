@@ -1,2 +1,10 @@
+import Test.Tasty
+import Test.Tasty.HUnit
+
+import ANormSpec
+
 main :: IO ()
-main = putStrLn "Test suite not yet implemented"
+main = putStrLn "" >> defaultMain tests
+
+tests :: TestTree
+tests = testGroup "Tests" [aNormTests]

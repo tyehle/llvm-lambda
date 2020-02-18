@@ -22,6 +22,8 @@ description:         Please see the README on Github at <https://github.com/tyeh
 dependencies:
 - base >= 4.7 && < 5
 - atto-lisp
+- bytestring
+- containers
 - attoparsec
 - utf8-string
 - text
@@ -31,8 +33,6 @@ library:
   dependencies:
   - llvm-hs
   - llvm-hs-pure
-  - bytestring
-  - containers
   - mtl
   - transformers
 
@@ -59,3 +59,5 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - llvm-lambda
+    - tasty
+    - tasty-hunit
