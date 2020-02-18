@@ -5,6 +5,10 @@ import Control.Monad (foldM)
 import Fresh
 import qualified LowLevel as LL
 
+data Prog = Prog [Def] Expr deriving (Eq, Show)
+
+data Def = ClosureDef String String [String] Expr deriving (Eq, Show)
+
 data AExpr = Ref String
            | GetEnv String Integer
            deriving (Eq, Show)
@@ -81,3 +85,14 @@ aNormalizeExpr (LL.NewClos functionName envVars) = do
   return $ binding $ NewClos functionName refs
 
 aNormalizeExpr (LL.GetEnv envName index) = pure $ Atomic $ GetEnv envName index
+
+
+aNormalizeDef :: (Monad m, MonadFresh m) => LL.Def -> m Def
+aNormalizeDef (LL.ClosureDef name envName argNames body) = ClosureDef name envName argNames <$> aNormalizeExpr body
+
+
+aNormalizeProg :: (Monad m, MonadFresh m) => LL.Prog -> m Prog
+aNormalizeProg (LL.Prog defs main) = do
+  defs' <- mapM aNormalizeDef defs
+  main' <- aNormalizeExpr main
+  return $ Prog defs' main'
