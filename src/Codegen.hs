@@ -7,7 +7,7 @@ import Data.ByteString (ByteString)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Control.Monad.Identity
 import Data.Word (Word32)
 
@@ -22,12 +22,14 @@ import LLVM.AST.Linkage (Linkage(Private))
 import LLVM.Context
 import LLVM.Module hiding (Module)
 
-import LowLevel
+import ANorm
 import Fresh
 import LibCDefs
 
-generate :: Prog -> IO ByteString
-generate prog = withContext $ \ctx -> withModuleFromAST ctx (genModule prog) moduleLLVMAssembly
+generate :: Prog -> Fresh (IO ByteString)
+generate prog = do
+  llvmModule <- genModule prog
+  return $ withContext $ \ctx -> withModuleFromAST ctx llvmModule moduleLLVMAssembly
 
 
 -- sample :: IO ByteString
@@ -109,9 +111,6 @@ data CodegenState = CodegenState
 
 type Codegen = CodegenT Identity
 
-execCodegen :: Codegen a -> CodegenState -> CodegenState
-execCodegen = execState . codegenState
-
 modifyEnvironment :: MonadState CodegenState m => (Env -> Env) -> m ()
 modifyEnvironment f = modify $ \s -> s { environment = f . environment $ s }
 
@@ -120,10 +119,14 @@ addInstruction instr = modify $ \s -> s { instructions = instr : instructions s 
 
 type FreshCodegen = FreshT Codegen
 
-execFreshCodegen :: FreshCodegen a -> CodegenState
-execFreshCodegen = flip execCodegen emptyState . flip evalFreshT Map.empty
+emptyCodegenState :: CodegenState
+emptyCodegenState = CodegenState { defs=Map.empty, blockName=Nothing, blocks=[], instructions=[], environment=Map.empty }
+
+runCodegen :: FreshCodegen a -> Fresh CodegenState
+runCodegen (FreshT (StateT f)) = FreshT $ StateT $ inner . f
   where
-    emptyState = CodegenState { defs=Map.empty, blockName=Nothing, blocks=[], instructions=[], environment=Map.empty }
+    inner :: Applicative m => Codegen (a, s) -> m (CodegenState, s)
+    inner = pure . (\((_, s), res) -> (res, s)) . flip runState emptyCodegenState . codegenState
 
 
 pointerBits :: Word32
@@ -191,11 +194,11 @@ defineCheckArity = do
     }
 
 
-genModule :: Prog -> Module
-genModule (Prog progDefs expr) = defaultModule { moduleName = "main", moduleDefinitions = allDefs }
+genModule :: Prog -> Fresh Module
+genModule (Prog progDefs expr) = do { moduleDefs <- allDefs; return defaultModule { moduleName = "main", moduleDefinitions = moduleDefs } }
   where
-    allDefs :: [Definition]
-    allDefs = map (GlobalDefinition . snd) . Map.toList . defs . execFreshCodegen $ buildModule
+    allDefs :: Fresh [Definition]
+    allDefs = map (GlobalDefinition . snd) . Map.toList . defs <$> runCodegen buildModule
 
     declareDef :: Def -> FreshCodegen ()
     declareDef (ClosureDef name envName argNames _) =
@@ -331,8 +334,8 @@ checkArity clos numArgs = do
     findDef = gets $ fromMaybe (error "no checkArity definition found") . Map.lookup (Name "checkArity") . defs
 
 
-callClosure :: Operand -> [Operand] -> FreshCodegen Operand
-callClosure clos args = do
+callClosure :: Bool -> Operand -> [Operand] -> FreshCodegen Operand
+callClosure isTailCall clos args = do
   -- make sure we've got a closure
   checkTag clos closureTag
   let arity = length args
@@ -349,7 +352,8 @@ callClosure clos args = do
   let cc = G.callingConvention defParams
       retAttrs = G.returnAttributes defParams
       fAttrs = G.functionAttributes defParams
-  doInstruction (star intType) $ Call Nothing cc retAttrs (Right func) (zip (env:args) $ repeat []) fAttrs []
+      tailCallKind = if isTailCall then Just MustTail else Just NoTail
+  doInstruction (star intType) $ Call tailCallKind cc retAttrs (Right func) (zip (env:args) $ repeat []) fAttrs []
 
 
 allocClosure :: Name -> [Operand] -> FreshCodegen Operand
@@ -395,17 +399,17 @@ getFromEnv env index = do
 
 type IntBinOp = Bool -> Bool -> Operand -> Operand -> InstructionMetadata -> Instruction
 
-numBinOp :: Expr -> Expr -> IntBinOp -> FreshCodegen Operand
+numBinOp :: AExpr -> AExpr -> IntBinOp -> FreshCodegen Operand
 numBinOp a b op = do
-  aValue <- synthExpr a >>= getNum
-  bValue <- synthExpr b >>= getNum
+  aValue <- synthAExpr a >>= getNum
+  bValue <- synthAExpr b >>= getNum
   resultValue <- doInstruction intType $ op False False aValue bValue []
   allocNumber resultValue
 
 
-synthIf0 :: Expr -> Expr -> Expr -> FreshCodegen Operand
+synthIf0 :: AExpr -> Expr -> Expr -> FreshCodegen Operand
 synthIf0 c t f = do
-  condInt <- synthExpr c >>= getNum
+  condInt <- synthAExpr c >>= getNum
   condValue <- doInstruction boolType $ ICmp IPred.EQ condInt (ConstantOperand $ C.Int 32 0) []
   trueLabel <- uniqueName "trueBlock"
   falseLabel <- uniqueName "falseBlock"
@@ -422,6 +426,16 @@ synthIf0 c t f = do
   -- get the correct output
   startBlock exitLabel
   doInstruction (star intType) $ Phi (star intType) [(trueValue, trueLabel), (falseValue, falseLabel)] []
+
+
+synthAExpr :: AExpr -> FreshCodegen Operand
+synthAExpr (Ref name) = do
+  env <- gets environment
+  return . fromMaybe (error ("Unbound name: " ++ name)) $ Map.lookup name env
+
+synthAExpr (GetEnv envName index) = do
+  env <- synthAExpr (Ref envName)
+  getFromEnv env index
 
 
 synthExpr :: Expr -> FreshCodegen Operand
@@ -445,29 +459,23 @@ synthExpr (Let name binding body) = do
   modifyEnvironment $ const oldEnv
   return resultName
 
-synthExpr (Ref name) = do
-  env <- gets environment
-  return . fromMaybe (error ("Unbound name: " ++ name)) $ Map.lookup name env
-
 synthExpr (App funcName argExprs) = do
   -- find the function in the list of definitions
   global <- gets $ \s -> fromMaybe (error ("Function not defined: " ++ funcName)) $ Map.lookup (mkName funcName) (defs s)
   -- call the function
-  args <- mapM synthExpr argExprs
+  args <- mapM synthAExpr argExprs
   doInstruction (star intType) $ callGlobal global args
 
-synthExpr (AppClos closExpr argExprs) = do
-  clos <- synthExpr closExpr
-  args <- mapM synthExpr argExprs
-  callClosure clos args
+synthExpr (AppClos isTailCall closExpr argExprs) = do
+  clos <- synthAExpr closExpr
+  args <- mapM synthAExpr argExprs
+  callClosure isTailCall clos args
 
 synthExpr (NewClos closName bindings) = do
-  args <- mapM synthExpr bindings
+  args <- mapM synthAExpr bindings
   allocClosure (mkName closName) args
 
-synthExpr (GetEnv envName index) = do
-  env <- synthExpr (Ref envName)
-  getFromEnv env index
+synthExpr (Atomic a) = synthAExpr a
 
 
 doInstruction :: Type -> Instruction -> FreshCodegen Operand

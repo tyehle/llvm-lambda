@@ -1,11 +1,14 @@
 module Main where
 
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.Map as Map
 import qualified Data.Set as Set
 import System.Environment (getArgs)
 
+import qualified ANorm as A
 import Codegen
 import Expr
+import Fresh (evalFresh)
 import qualified LowLevel as LL
 import Parsing
 
@@ -19,9 +22,11 @@ getInput = do
 
 
 runPipeline :: String -> IO BS.ByteString
-runPipeline input = generate (LL.runConvert (either error id $ parse input) globals)
+runPipeline input = evalFresh (A.aNormalizeProg lowLevel >>= generate) Map.empty
   where
     globals = Set.fromList ["printf"]
+    ast = either error id $ parse input
+    lowLevel = LL.runConvert ast globals
 
 
 main :: IO ()
