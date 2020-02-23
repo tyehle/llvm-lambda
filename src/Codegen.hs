@@ -244,11 +244,11 @@ genModule (Prog progDefs expr) = do { moduleDefs <- allDefs; return defaultModul
       -- Print result
       printOperand result
 
-      finishBlock (Do $ Ret Nothing [])
+      finishBlock $ Do $ Ret (Just $ ConstantOperand $ C.Int 32 0) []
       defineFunction functionDefaults
         { G.name = Name "main"
         , G.parameters = ([], False)
-        , G.returnType = VoidType
+        , G.returnType = intType
         }
 
     addDefs :: FreshCodegen ()
