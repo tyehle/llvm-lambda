@@ -85,7 +85,7 @@ aNormalizeExpr (LL.App name args) = do
 aNormalizeExpr (LL.AppClos closure args) = do
   (cRef, cLet) <- freshBinding "_clos_" closure
   (refs, binding) <- bindMany "_arg" args
-  return $ binding $ AppClos False cRef refs
+  return $ cLet $ binding $ AppClos False cRef refs
 
 aNormalizeExpr (LL.NewClos functionName envVars) = do
   (refs, binding) <- bindMany "_envVar" envVars
