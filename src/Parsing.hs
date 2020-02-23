@@ -5,7 +5,8 @@ module Parsing where
 import Prelude hiding (fail)
 
 import Control.Monad.Fail
-import Data.Attoparsec.ByteString
+import Data.Attoparsec.ByteString as A
+import Data.Attoparsec.ByteString.Char8 (isSpace_w8)
 import Data.Attoparsec.Number (Number(..))
 import qualified Data.AttoLisp as L
 import Data.ByteString.UTF8
@@ -15,7 +16,9 @@ import Expr
 
 
 parse :: String -> Either String Expr
-parse input = parseOnly (L.lisp >>= translation) (fromString input)
+parse input = parseOnly parser (fromString input)
+  where
+    parser = L.lisp <* A.takeWhile isSpace_w8 <* endOfInput >>= translation
 
 
 translation :: MonadFail m => L.Lisp -> m Expr
