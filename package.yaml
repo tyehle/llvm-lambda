@@ -60,5 +60,9 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - llvm-lambda
+    - directory
+    - filepath
     - tasty
     - tasty-hunit
+    - tasty-golden
+    - process

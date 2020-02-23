@@ -2,9 +2,12 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import ANormSpec
+import ExecutionSpec
 
 main :: IO ()
-main = putStrLn "" >> defaultMain tests
+main = putStrLn "" >> buildTests >>= defaultMain
 
-tests :: TestTree
-tests = testGroup "Tests" [aNormTests]
+buildTests :: IO TestTree
+buildTests = do
+  executionTests <- findExecutionTests
+  return $ testGroup "Tests" [aNormTests, executionTests]
