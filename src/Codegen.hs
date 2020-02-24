@@ -168,14 +168,15 @@ defineGuard = do
 defineCheckArity :: FreshCodegen ()
 defineCheckArity = do
   let closure = (star intType, Name "closure")
-  let numArgs = (intType, Name "numArgs")
+  let numArgs = (IntegerType 16, Name "numArgs")
 
   errBlock <- uniqueName "err"
   okBlock <- uniqueName "ok"
 
   uniqueName "entry" >>= startBlock
-  arityLoc <- doInstruction (star intType) (arrayAccess (uncurry LocalReference closure) 1)
-  arity <- doInstruction intType $ Load True arityLoc Nothing 0 []
+  shortArray <- cast (star $ IntegerType 16) $ uncurry LocalReference closure
+  arityLoc <- doInstruction (star $ IntegerType 16) $ arrayAccess shortArray 2
+  arity <- doInstruction (IntegerType 16) $ Load True arityLoc Nothing 0 []
   notEq <- doInstruction boolType $ ICmp IPred.NE arity (uncurry LocalReference numArgs) []
   finishBlock $ Do $ CondBr notEq errBlock okBlock []
 
@@ -329,7 +330,7 @@ checkTag actual expected = do
 checkArity :: Operand -> Integer -> FreshCodegen ()
 checkArity clos numArgs = do
   def <- findDef
-  addInstruction $ Do $ callGlobal def [clos, ConstantOperand (C.Int 32 numArgs)]
+  addInstruction $ Do $ callGlobal def [clos, ConstantOperand (C.Int 16 numArgs)]
   where
     findDef = gets $ fromMaybe (error "no checkArity definition found") . Map.lookup (Name "checkArity") . defs
 
@@ -358,18 +359,23 @@ callClosure isTailCall clos args = do
 
 allocClosure :: Name -> [Operand] -> FreshCodegen Operand
 allocClosure funcName values = do
-  -- tag: i32, arity: i32, funcPointer: ptr, envValues: ptr ...
+  -- tag: i32, arity: i16, size: i16, funcPointer: ptr, envValues: ptr ...
   -- need enough memory for two ints and then an array of pointers
   -- all sizes are in bytes
   let pointerBytes = fromIntegral pointerBits `quot` 8
-  let closureSize = ConstantOperand . C.Int 64 . fromIntegral $ 8 + pointerBytes * length values
+  let closureSize = ConstantOperand . C.Int 64 . fromIntegral $ 8 + pointerBytes * (length values + 1)
   loc <- doInstruction (star charType) (callGlobal malloc [closureSize]) >>= cast (star intType)
   -- set the type tag
   addInstruction $ Do $ Store True loc closureTag Nothing 0 []
   -- set number of args
-  arityLoc <- doInstruction (star intType) $ arrayAccess loc 1
+  loc16 <- cast (star $ IntegerType 16) loc
+  arityLoc <- doInstruction (star $ IntegerType 16) $ arrayAccess loc16 2
   arity <- defArity
-  addInstruction $ Do $ Store True arityLoc (ConstantOperand (C.Int 32 arity)) Nothing 0 []
+  addInstruction $ Do $ Store True arityLoc (ConstantOperand (C.Int 16 arity)) Nothing 0 []
+  -- set the size of the environment
+  sizeLoc <- doInstruction (star $ IntegerType 16) $ arrayAccess loc16 3
+  let size = fromIntegral $ length values
+  addInstruction $ Do $ Store True sizeLoc (ConstantOperand (C.Int 16 size)) Nothing 0 []
   -- get a reference to the funcPtr
   let argTypes = star (star intType) : replicate (fromIntegral arity) (star intType)
   let funcRef = C.GlobalReference (star (FunctionType (star intType) argTypes False)) funcName
