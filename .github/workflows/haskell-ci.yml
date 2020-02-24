@@ -1,0 +1,28 @@
+name: Haskell CI
+
+on: [push]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+#     - name: Install OS Packages
+#       uses: mstksg/get-package@v1
+#       with:
+#         apt-get: llvm-5.0
+    
+    - uses: actions/checkout@v2
+    
+    - name: Setup Stack
+      uses: mstksg/setup-stack@v1
+    
+    - name: Install Dependencies
+      run: stack --no-terminal --install-ghc test --bench --only-dependencies
+    
+    - name: Build
+      run: stack --no-terminal build
+    
+    - name: Run tests
+      run: stack --no-terminal test --bench --no-run-benchmarks --haddock --no-haddock-deps
