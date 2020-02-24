@@ -50,8 +50,8 @@ generate prog = do
 --
 --     buildFunction :: FreshCodegen Name
 --     buildFunction = do
---       let envParam = (star (star intType), Name "env")
---       let argParam = (star intType, Name "x")
+--       let envParam = (star $ star $ IntegerType 32, Name "env")
+--       let argParam = (star $ IntegerType 32, Name "x")
 --
 --       -- get a refernece to the environment
 --       let env = uncurry LocalReference envParam
@@ -61,7 +61,7 @@ generate prog = do
 --       value <- getNum valueBox
 --
 --       arg <- getNum (uncurry LocalReference argParam)
---       added <- doInstruction intType $ Add False False value arg []
+--       added <- doInstruction (IntegerType 32) $ Add False False value arg []
 --       result <- allocNumber added
 --
 --       finishBlock (Name "entry") (Do $ Ret (Just result) [])
@@ -139,15 +139,15 @@ intTag     = ConstantOperand $ C.Int 32 1
 
 defineGuard :: FreshCodegen ()
 defineGuard = do
-  let actualParam   = (star intType, Name "actual")
-  let expectedParam = (intType, Name "expected")
+  let actualParam   = (star $ IntegerType 32, Name "actual")
+  let expectedParam = (IntegerType 32, Name "expected")
 
   errBlock <- uniqueName "err"
   okBlock <- uniqueName "ok"
 
   uniqueName "entry" >>= startBlock
-  actualValue <- doInstruction intType $ Load True (uncurry LocalReference actualParam) Nothing 0 []
-  notEq <- doInstruction boolType $ ICmp IPred.NE actualValue (uncurry LocalReference expectedParam) []
+  actualValue <- doInstruction (IntegerType 32) $ Load True (uncurry LocalReference actualParam) Nothing 0 []
+  notEq <- doInstruction (IntegerType 1) $ ICmp IPred.NE actualValue (uncurry LocalReference expectedParam) []
   finishBlock $ Do $ CondBr notEq errBlock okBlock []
 
   startBlock errBlock
@@ -167,7 +167,7 @@ defineGuard = do
 
 defineCheckArity :: FreshCodegen ()
 defineCheckArity = do
-  let closure = (star intType, Name "closure")
+  let closure = (star $ IntegerType 32, Name "closure")
   let numArgs = (IntegerType 16, Name "numArgs")
 
   errBlock <- uniqueName "err"
@@ -177,7 +177,7 @@ defineCheckArity = do
   shortArray <- cast (star $ IntegerType 16) $ uncurry LocalReference closure
   arityLoc <- doInstruction (star $ IntegerType 16) $ arrayAccess shortArray 2
   arity <- doInstruction (IntegerType 16) $ Load True arityLoc Nothing 0 []
-  notEq <- doInstruction boolType $ ICmp IPred.NE arity (uncurry LocalReference numArgs) []
+  notEq <- doInstruction (IntegerType 1) $ ICmp IPred.NE arity (uncurry LocalReference numArgs) []
   finishBlock $ Do $ CondBr notEq errBlock okBlock []
 
   startBlock errBlock
@@ -206,15 +206,15 @@ genModule (Prog progDefs expr) = do { moduleDefs <- allDefs; return defaultModul
       modify $ \s -> s { defs = Map.insert defName emptyDef (defs s) }
       where
         defName = mkName name
-        argParam argName = Parameter (star intType) (mkName argName) []
-        params = Parameter (star (star intType)) (mkName envName) [] : map argParam argNames
+        argParam argName = Parameter (star $ IntegerType 32) (mkName argName) []
+        params = Parameter (star (star $ IntegerType 32)) (mkName envName) [] : map argParam argNames
         emptyDef = defParams { G.name = defName , G.parameters = (params , False) }
 
     addGlobalDef :: Def -> FreshCodegen ()
     addGlobalDef (ClosureDef name envName argNames body) = do
       uniqueName "entry" >>= startBlock
-      let env = LocalReference (star (star intType)) (mkName envName)
-      let mkArg argName = LocalReference (star intType) (mkName argName)
+      let env = LocalReference (star (star (IntegerType 32))) (mkName envName)
+      let mkArg argName = LocalReference (star (IntegerType 32)) (mkName argName)
 
       -- put all the arguments into the environment
       oldEnv <- gets environment
@@ -249,7 +249,7 @@ genModule (Prog progDefs expr) = do { moduleDefs <- allDefs; return defaultModul
       defineFunction functionDefaults
         { G.name = Name "main"
         , G.parameters = ([], False)
-        , G.returnType = intType
+        , G.returnType = IntegerType 32
         }
 
     addDefs :: FreshCodegen ()
@@ -270,8 +270,8 @@ defineFmtString = modify $ \s -> s { defs = Map.insert name global (defs s) }
       { G.name = name
       , G.linkage = Private
       , G.isConstant = True
-      , G.type' = ArrayType 4 charType
-      , G.initializer = Just . C.Array charType . mkString $ "%d\n\NUL"
+      , G.type' = ArrayType 4 $ IntegerType 8
+      , G.initializer = Just . C.Array (IntegerType 8) . mkString $ "%d\n\NUL"
       }
     mkString = map (C.Int 8 . fromIntegral . ord)
 
@@ -279,14 +279,14 @@ defineFmtString = modify $ \s -> s { defs = Map.insert name global (defs s) }
 printOperand :: Operand -> FreshCodegen ()
 printOperand loc = do
   value <- getNum loc
-  let fmtRef = C.GlobalReference (PointerType (ArrayType 4 charType) (AddrSpace 0)) (Name "fmt")
+  let fmtRef = C.GlobalReference (PointerType (ArrayType 4 $ IntegerType 8) (AddrSpace 0)) (Name "fmt")
   let fmtArg = ConstantOperand $ C.GetElementPtr True fmtRef [C.Int 32 0, C.Int 32 0]
   addInstruction $ Do $ callGlobal printf [fmtArg, value]
   return ()
 
 
 defParams :: Global
-defParams = functionDefaults { G.returnType = star intType }
+defParams = functionDefaults { G.returnType = star (IntegerType 32) }
 
 
 cast :: Type -> Operand -> FreshCodegen Operand
@@ -301,19 +301,19 @@ arrayAccess array index = GetElementPtr True array [ConstantOperand $ C.Int poin
 getNum :: Operand -> FreshCodegen Operand
 getNum loc = do
   checkTag loc intTag
-  valueLoc <- doInstruction (star intType) $ GetElementPtr True loc [ConstantOperand (C.Int pointerBits 1)] []
-  doInstruction intType $ Load True valueLoc Nothing 0 []
+  valueLoc <- doInstruction (star $ IntegerType 32) $ GetElementPtr True loc [ConstantOperand (C.Int pointerBits 1)] []
+  doInstruction (IntegerType 32) $ Load True valueLoc Nothing 0 []
 
 
 allocNumber :: Operand -> FreshCodegen Operand
 allocNumber num = do
   -- malloc a number
-  mem <- doInstruction (star charType) $ callGlobal malloc [ConstantOperand $ C.Int 64 8]
-  loc <- cast (star intType) mem
+  mem <- doInstruction (star $ IntegerType 8) $ callGlobal malloc [ConstantOperand $ C.Int 64 8]
+  loc <- cast (star $ IntegerType 32) mem
   -- set the type tag
   addInstruction $ Do $ Store True loc intTag Nothing 0 []
   -- set the value
-  valueLoc <- doInstruction (star intType) $ arrayAccess loc 1
+  valueLoc <- doInstruction (star $ IntegerType 32) $ arrayAccess loc 1
   addInstruction $ Do $ Store True valueLoc num Nothing 0 []
   -- return the memory location
   return loc
@@ -342,19 +342,19 @@ callClosure isTailCall clos args = do
   let arity = length args
   checkArity clos (fromIntegral arity)
   -- find where the pointer array starts
-  array <- doInstruction intType (arrayAccess clos 2) >>= cast (star (star intType))
+  array <- doInstruction (IntegerType 32) (arrayAccess clos 2) >>= cast (star (star (IntegerType 32)))
   -- get the function
-  let functionType = FunctionType (star intType) (star (star intType) : replicate arity (star intType)) False
-  funcPtr <- doInstruction (star intType) (arrayAccess array 0) >>= cast (star (star functionType))
+  let functionType = FunctionType (star $ IntegerType 32) (star (star $ IntegerType 32) : replicate arity (star $ IntegerType 32)) False
+  funcPtr <- doInstruction (star $ IntegerType 32) (arrayAccess array 0) >>= cast (star $ star functionType)
   func <- doInstruction (star functionType) $ Load True funcPtr Nothing 0 []
   -- get the environment
-  env <- doInstruction (star (star intType)) $ arrayAccess array 1
+  env <- doInstruction (star $ star $ IntegerType 32) $ arrayAccess array 1
   -- call the function
   let cc = G.callingConvention defParams
       retAttrs = G.returnAttributes defParams
       fAttrs = G.functionAttributes defParams
       tailCallKind = if isTailCall then Just MustTail else Just NoTail
-  doInstruction (star intType) $ Call tailCallKind cc retAttrs (Right func) (zip (env:args) $ repeat []) fAttrs []
+  doInstruction (star $ IntegerType 32) $ Call tailCallKind cc retAttrs (Right func) (zip (env:args) $ repeat []) fAttrs []
 
 
 allocClosure :: Name -> [Operand] -> FreshCodegen Operand
@@ -364,7 +364,7 @@ allocClosure funcName values = do
   -- all sizes are in bytes
   let pointerBytes = fromIntegral pointerBits `quot` 8
   let closureSize = ConstantOperand . C.Int 64 . fromIntegral $ 8 + pointerBytes * (length values + 1)
-  loc <- doInstruction (star charType) (callGlobal malloc [closureSize]) >>= cast (star intType)
+  loc <- doInstruction (star $ IntegerType 8) (callGlobal malloc [closureSize]) >>= cast (star $ IntegerType 32)
   -- set the type tag
   addInstruction $ Do $ Store True loc closureTag Nothing 0 []
   -- set number of args
@@ -377,11 +377,11 @@ allocClosure funcName values = do
   let size = fromIntegral $ length values
   addInstruction $ Do $ Store True sizeLoc (ConstantOperand (C.Int 16 size)) Nothing 0 []
   -- get a reference to the funcPtr
-  let argTypes = star (star intType) : replicate (fromIntegral arity) (star intType)
-  let funcRef = C.GlobalReference (star (FunctionType (star intType) argTypes False)) funcName
-  funcPtr <- cast (star intType) $ ConstantOperand funcRef
+  let argTypes = star (star $ IntegerType 32) : replicate (fromIntegral arity) (star $ IntegerType 32)
+  let funcRef = C.GlobalReference (star $ FunctionType (star $ IntegerType 32) argTypes False) funcName
+  funcPtr <- cast (star $ IntegerType 32) $ ConstantOperand funcRef
   -- fill in the array of pointers
-  arrayLoc <- doInstruction (star intType) (arrayAccess loc 2) >>= cast (star (star intType))
+  arrayLoc <- doInstruction (star $ IntegerType 32) (arrayAccess loc 2) >>= cast (star $ star $ IntegerType 32)
   storePtr arrayLoc (funcPtr, 0)
   -- fill in the values in the array
   mapM_ (storePtr arrayLoc) (zip values [1..])
@@ -393,14 +393,14 @@ allocClosure funcName values = do
       return . subtract 1 . fromIntegral . length . fst . G.parameters $ global
     storePtr :: Operand -> (Operand, Integer) -> FreshCodegen ()
     storePtr arrayLoc (ptr, index) = do
-      wherePut <- doInstruction (star (star intType)) $ arrayAccess arrayLoc index
+      wherePut <- doInstruction (star $ star $ IntegerType 32) $ arrayAccess arrayLoc index
       addInstruction $ Do $ Store True wherePut ptr Nothing 0 []
 
 
 getFromEnv :: Operand -> Integer -> FreshCodegen Operand
 getFromEnv env index = do
-  loc <- doInstruction (star (star intType)) $ arrayAccess env index
-  doInstruction (star intType) $ Load True loc Nothing 0 []
+  loc <- doInstruction (star $ star $ IntegerType 32) $ arrayAccess env index
+  doInstruction (star $ IntegerType 32) $ Load True loc Nothing 0 []
 
 
 type IntBinOp = Bool -> Bool -> Operand -> Operand -> InstructionMetadata -> Instruction
@@ -409,14 +409,14 @@ numBinOp :: AExpr -> AExpr -> IntBinOp -> FreshCodegen Operand
 numBinOp a b op = do
   aValue <- synthAExpr a >>= getNum
   bValue <- synthAExpr b >>= getNum
-  resultValue <- doInstruction intType $ op False False aValue bValue []
+  resultValue <- doInstruction (IntegerType 32) $ op False False aValue bValue []
   allocNumber resultValue
 
 
 synthIf0 :: AExpr -> Expr -> Expr -> FreshCodegen Operand
 synthIf0 c t f = do
   condInt <- synthAExpr c >>= getNum
-  condValue <- doInstruction boolType $ ICmp IPred.EQ condInt (ConstantOperand $ C.Int 32 0) []
+  condValue <- doInstruction (IntegerType 1) $ ICmp IPred.EQ condInt (ConstantOperand $ C.Int 32 0) []
   trueLabel <- uniqueName "trueBlock"
   falseLabel <- uniqueName "falseBlock"
   exitLabel <- uniqueName "ifExit"
@@ -431,7 +431,7 @@ synthIf0 c t f = do
   finishBlock $ Do $ Br exitLabel []
   -- get the correct output
   startBlock exitLabel
-  doInstruction (star intType) $ Phi (star intType) [(trueValue, trueLabel), (falseValue, falseLabel)] []
+  doInstruction (star $ IntegerType 32) $ Phi (star $ IntegerType 32) [(trueValue, trueLabel), (falseValue, falseLabel)] []
 
 
 synthAExpr :: AExpr -> FreshCodegen Operand
@@ -470,7 +470,7 @@ synthExpr (App funcName argExprs) = do
   global <- gets $ \s -> fromMaybe (error ("Function not defined: " ++ funcName)) $ Map.lookup (mkName funcName) (defs s)
   -- call the function
   args <- mapM synthAExpr argExprs
-  doInstruction (star intType) $ callGlobal global args
+  doInstruction (star $ IntegerType 32) $ callGlobal global args
 
 synthExpr (AppClos isTailCall closExpr argExprs) = do
   clos <- synthAExpr closExpr
