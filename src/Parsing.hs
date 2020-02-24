@@ -5,20 +5,20 @@ module Parsing where
 import Prelude hiding (fail)
 
 import Control.Monad.Fail
-import Data.Attoparsec.ByteString as A
+import qualified Data.Attoparsec.ByteString as A
 import Data.Attoparsec.ByteString.Char8 (isSpace_w8)
 import Data.Attoparsec.Number (Number(..))
 import qualified Data.AttoLisp as L
 import Data.ByteString.UTF8
-import Data.Text as T
+import qualified Data.Text as T
 
 import Expr
 
 
 parse :: String -> Either String Expr
-parse input = parseOnly parser (fromString input)
+parse input = A.parseOnly parser (fromString input)
   where
-    parser = L.lisp <* A.takeWhile isSpace_w8 <* endOfInput >>= translation
+    parser = L.lisp <* A.takeWhile isSpace_w8 <* A.endOfInput >>= translation
 
 
 translation :: MonadFail m => L.Lisp -> m Expr
@@ -46,12 +46,12 @@ translation (L.List (fn : args)) =
   App <$> translation fn <*> mapM translation args
 
 
-keywords :: [Text]
+keywords :: [T.Text]
 keywords = ["+", "-", "*", "/", "if0", "let", "lambda"]
 
 
 parseIdenifier :: MonadFail m => L.Lisp -> m String
 parseIdenifier (L.Symbol name)
-  | name `elem` keywords = fail $ "Invalid identifier: " ++ T.unpack name
+  | name `elem` keywords || T.isPrefixOf "__" name = fail $ "Invalid identifier: " ++ T.unpack name
   | otherwise = return $ T.unpack name
 parseIdenifier bad = fail $ "Invalid identifier: " ++ show bad
