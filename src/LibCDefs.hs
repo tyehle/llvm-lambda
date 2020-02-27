@@ -12,21 +12,6 @@ import LLVM.AST.FunctionAttribute
 data ExternalDefinition = ExternalDefinition Definition CallableOperand
 
 
--- doubleType :: Type
--- doubleType = FloatingPointType DoubleFP
-
--- intType :: Type
--- intType = IntegerType 32
-
--- longType :: Type
--- longType = IntegerType 64
-
--- charType :: Type
--- charType = IntegerType 8
-
--- boolType :: Type
--- boolType = IntegerType 1
-
 star :: Type -> Type
 star t = PointerType t (AddrSpace 0)
 
@@ -39,18 +24,26 @@ printf = functionDefaults
   }
 
 
-malloc :: Global
-malloc = functionDefaults
-  { name = Name "malloc"
-  , parameters = ([Parameter (IntegerType 64) (Name "size") []], False)
+allocate :: Global
+allocate = functionDefaults
+  { name = Name "__tl_allocate"
+  , parameters = ([Parameter (IntegerType 64) (Name "bytes") []], False)
   , returnType = star $ IntegerType 8
   }
 
 
-free :: Global
-free = functionDefaults
-  { name = Name "free"
-  , parameters = ([Parameter (star $ IntegerType 8) (Name "ptr") []], False)
+pushScope :: Global
+pushScope = functionDefaults
+  { name = Name "__push_scope"
+  , parameters = ([Parameter (star $ IntegerType 32) (Name "loc") []], False)
+  , returnType = VoidType
+  }
+
+
+popScope :: Global
+popScope = functionDefaults
+  { name = Name "__pop_scope"
+  , parameters = ([], False)
   , returnType = VoidType
   }
 

@@ -257,7 +257,9 @@ genModule (Prog progDefs expr) = do { moduleDefs <- allDefs; return defaultModul
       defineFmtString
       defineGuard
       defineCheckArity
-      defineFunction malloc
+      defineFunction allocate
+      defineFunction pushScope
+      defineFunction popScope
       defineFunction exit
       defineFunction printf
 
@@ -308,7 +310,7 @@ getNum loc = do
 allocNumber :: Operand -> FreshCodegen Operand
 allocNumber num = do
   -- malloc a number
-  mem <- doInstruction (star $ IntegerType 8) $ callGlobal malloc [ConstantOperand $ C.Int 64 8]
+  mem <- doInstruction (star $ IntegerType 8) $ callGlobal allocate [ConstantOperand $ C.Int 64 8]
   loc <- cast (star $ IntegerType 32) mem
   -- set the type tag
   addInstruction $ Do $ Store True loc intTag Nothing 0 []
@@ -364,7 +366,7 @@ allocClosure funcName values = do
   -- all sizes are in bytes
   let pointerBytes = fromIntegral pointerBits `quot` 8
   let closureSize = ConstantOperand . C.Int 64 . fromIntegral $ 8 + pointerBytes * (length values + 1)
-  loc <- doInstruction (star $ IntegerType 8) (callGlobal malloc [closureSize]) >>= cast (star $ IntegerType 32)
+  loc <- doInstruction (star $ IntegerType 8) (callGlobal allocate [closureSize]) >>= cast (star $ IntegerType 32)
   -- set the type tag
   addInstruction $ Do $ Store True loc closureTag Nothing 0 []
   -- set number of args
@@ -460,8 +462,10 @@ synthExpr (If0 c t f) = synthIf0 c t f
 synthExpr (Let name binding body) = do
   oldEnv <- gets environment
   bindingName <- synthExpr binding
+  _ <- addInstruction $ Do $ callGlobal pushScope [bindingName]
   modifyEnvironment $ Map.insert name bindingName
   resultName <- synthExpr body
+  _ <- addInstruction $ Do $ callGlobal popScope []
   modifyEnvironment $ const oldEnv
   return resultName
 
