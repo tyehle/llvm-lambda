@@ -216,6 +216,12 @@ genModule (Prog progDefs expr) = do { moduleDefs <- allDefs; return defaultModul
       let env = LocalReference (star (star (IntegerType 32))) (mkName envName)
       let mkArg argName = LocalReference (star (IntegerType 32)) (mkName argName)
 
+      -- mark all locals as in scope
+      -- the start of the closure is 16 bytes before the start of the environment
+      closureLoc <- doInstruction (star $ IntegerType 32) (arrayAccess env (-2)) >>= cast (star $ IntegerType 32)
+      _ <- addInstruction $ Do $ callGlobal pushScope [closureLoc]
+      mapM_ (\name -> addInstruction $ Do $ callGlobal pushScope [mkArg name]) argNames
+
       -- put all the arguments into the environment
       oldEnv <- gets environment
       modifyEnvironment $ Map.insert envName env
@@ -223,7 +229,7 @@ genModule (Prog progDefs expr) = do { moduleDefs <- allDefs; return defaultModul
       mapM_ modifyEnvironment insertions
 
       -- generate the function code
-      result <- synthExpr body
+      result <- synthExpr (length argNames + 1) body
 
       -- reset the environment
       modifyEnvironment $ const oldEnv
@@ -240,7 +246,7 @@ genModule (Prog progDefs expr) = do { moduleDefs <- allDefs; return defaultModul
 
       -- Run codegen for main
       uniqueName "entry" >>= startBlock
-      result <- synthExpr expr
+      result <- synthExpr 0 expr
 
       -- Print result
       printOperand result
@@ -337,8 +343,8 @@ checkArity clos numArgs = do
     findDef = gets $ fromMaybe (error "no checkArity definition found") . Map.lookup (Name "checkArity") . defs
 
 
-callClosure :: Bool -> Operand -> [Operand] -> FreshCodegen Operand
-callClosure isTailCall clos args = do
+callClosure :: Int -> Bool -> Operand -> [Operand] -> FreshCodegen Operand
+callClosure requiredPops isTailCall clos args = do
   -- make sure we've got a closure
   checkTag clos closureTag
   let arity = length args
@@ -351,6 +357,8 @@ callClosure isTailCall clos args = do
   func <- doInstruction (star functionType) $ Load True funcPtr Nothing 0 []
   -- get the environment
   env <- doInstruction (star $ star $ IntegerType 32) $ arrayAccess array 1
+  -- pop the local scope
+  callPopScope requiredPops
   -- call the function
   let cc = G.callingConvention defParams
       retAttrs = G.returnAttributes defParams
@@ -399,6 +407,10 @@ allocClosure funcName values = do
       addInstruction $ Do $ Store True wherePut ptr Nothing 0 []
 
 
+callPopScope :: Int -> FreshCodegen ()
+callPopScope n = replicateM_ n $ addInstruction $ Do $ callGlobal popScope []
+
+
 getFromEnv :: Operand -> Integer -> FreshCodegen Operand
 getFromEnv env index = do
   loc <- doInstruction (star $ star $ IntegerType 32) $ arrayAccess env index
@@ -415,8 +427,8 @@ numBinOp a b op = do
   allocNumber resultValue
 
 
-synthIf0 :: AExpr -> Expr -> Expr -> FreshCodegen Operand
-synthIf0 c t f = do
+synthIf0 :: Int -> AExpr -> Expr -> Expr -> FreshCodegen Operand
+synthIf0 requiredPops c t f = do
   condInt <- synthAExpr c >>= getNum
   condValue <- doInstruction (IntegerType 1) $ ICmp IPred.EQ condInt (ConstantOperand $ C.Int 32 0) []
   trueLabel <- uniqueName "trueBlock"
@@ -425,11 +437,11 @@ synthIf0 c t f = do
   finishBlock $ Do $  CondBr condValue trueLabel falseLabel []
   -- Define the true block
   startBlock trueLabel
-  trueValue <- synthExpr t
+  trueValue <- synthExpr requiredPops t
   finishBlock $ Do $ Br exitLabel []
   -- Define the false block
   startBlock falseLabel
-  falseValue <- synthExpr f
+  falseValue <- synthExpr requiredPops f
   finishBlock $ Do $ Br exitLabel []
   -- get the correct output
   startBlock exitLabel
@@ -446,46 +458,48 @@ synthAExpr (GetEnv envName index) = do
   getFromEnv env index
 
 
-synthExpr :: Expr -> FreshCodegen Operand
-synthExpr (Num n) = allocNumber . ConstantOperand . C.Int 32 . fromIntegral $ n
+synthExpr :: Int -> Expr -> FreshCodegen Operand
+synthExpr requiredPops (Num n) = (allocNumber . ConstantOperand . C.Int 32 . fromIntegral $ n) <* callPopScope requiredPops
 
-synthExpr (Plus a b) = numBinOp a b Add
+synthExpr requiredPops (Plus a b) = numBinOp a b Add <* callPopScope requiredPops
 
-synthExpr (Minus a b) = numBinOp a b Sub
+synthExpr requiredPops (Minus a b) = numBinOp a b Sub <* callPopScope requiredPops
 
-synthExpr (Mult a b) = numBinOp a b Mul
+synthExpr requiredPops (Mult a b) = numBinOp a b Mul <* callPopScope requiredPops
 
-synthExpr (Divide a b) = numBinOp a b (const SDiv)
+synthExpr requiredPops (Divide a b) = numBinOp a b (const SDiv) <* callPopScope requiredPops
 
-synthExpr (If0 c t f) = synthIf0 c t f
+synthExpr requiredPops (If0 c t f) = synthIf0 requiredPops c t f
 
-synthExpr (Let name binding body) = do
+synthExpr requiredPops (Let name binding body) = do
   oldEnv <- gets environment
-  bindingName <- synthExpr binding
+  bindingName <- synthExpr 0 binding
   _ <- addInstruction $ Do $ callGlobal pushScope [bindingName]
   modifyEnvironment $ Map.insert name bindingName
-  resultName <- synthExpr body
-  _ <- addInstruction $ Do $ callGlobal popScope []
+  resultName <- synthExpr (requiredPops + 1) body
   modifyEnvironment $ const oldEnv
   return resultName
 
-synthExpr (App funcName argExprs) = do
+synthExpr requiredPops (App funcName argExprs) = do
   -- find the function in the list of definitions
   global <- gets $ \s -> fromMaybe (error ("Function not defined: " ++ funcName)) $ Map.lookup (mkName funcName) (defs s)
-  -- call the function
+  -- find all our arguments
   args <- mapM synthAExpr argExprs
+  -- pop our local scope before we make the call
+  callPopScope requiredPops
+  -- do the function call
   doInstruction (star $ IntegerType 32) $ callGlobal global args
 
-synthExpr (AppClos isTailCall closExpr argExprs) = do
+synthExpr requiredPops (AppClos isTailCall closExpr argExprs) = do
   clos <- synthAExpr closExpr
   args <- mapM synthAExpr argExprs
-  callClosure isTailCall clos args
+  callClosure requiredPops isTailCall clos args
 
-synthExpr (NewClos closName bindings) = do
+synthExpr requiredPops (NewClos closName bindings) = do
   args <- mapM synthAExpr bindings
-  allocClosure (mkName closName) args
+  allocClosure (mkName closName) args <* callPopScope requiredPops
 
-synthExpr (Atomic a) = synthAExpr a
+synthExpr requiredPops (Atomic a) = synthAExpr a <* callPopScope requiredPops
 
 
 doInstruction :: Type -> Instruction -> FreshCodegen Operand
