@@ -229,12 +229,9 @@ genModule (Prog progDefs expr) = do { moduleDefs <- allDefs; return defaultModul
       mapM_ modifyEnvironment insertions
 
       -- generate the function code
-      result <- synthExpr (length argNames + 1) body
-
+      result <- synthFunctionBody (length argNames + 1) body
       -- reset the environment
       modifyEnvironment $ const oldEnv
-
-      finishBlock (Do $ Ret (Just result) [])
       finishFunction $ mkName name
 
     buildModule :: FreshCodegen ()
@@ -344,7 +341,7 @@ checkArity clos numArgs = do
 
 
 callClosure :: Int -> Bool -> Operand -> [Operand] -> FreshCodegen Operand
-callClosure requiredPops isTailCall clos args = do
+callClosure requiredPops isTail clos args = do
   -- make sure we've got a closure
   checkTag clos closureTag
   let arity = length args
@@ -363,7 +360,7 @@ callClosure requiredPops isTailCall clos args = do
   let cc = G.callingConvention defParams
       retAttrs = G.returnAttributes defParams
       fAttrs = G.functionAttributes defParams
-      tailCallKind = if isTailCall then Just MustTail else Just NoTail
+      tailCallKind = if isTail then Just Tail else Just NoTail
   doInstruction (star $ IntegerType 32) $ Call tailCallKind cc retAttrs (Right func) (zip (env:args) $ repeat []) fAttrs []
 
 
@@ -448,6 +445,47 @@ synthIf0 requiredPops c t f = do
   doInstruction (star $ IntegerType 32) $ Phi (star $ IntegerType 32) [(trueValue, trueLabel), (falseValue, falseLabel)] []
 
 
+synthFunctionBody :: Int -> Expr -> FreshCodegen ()
+synthFunctionBody requiredPops (If0 c t f) = do
+  condInt <- synthAExpr c >>= getNum
+  condValue <- doInstruction (IntegerType 1) $ ICmp IPred.EQ condInt (ConstantOperand $ C.Int 32 0) []
+  trueLabel <- uniqueName "trueBlock"
+  falseLabel <- uniqueName "falseBlock"
+  finishBlock $ Do $  CondBr condValue trueLabel falseLabel []
+  -- true block
+  startBlock trueLabel
+  synthFunctionBody requiredPops t
+  -- false block
+  startBlock falseLabel
+  synthFunctionBody requiredPops f
+
+synthFunctionBody requiredPops (Let name binding body) = do
+  oldEnv <- gets environment
+  bindingName <- synthExpr 0 binding
+  _ <- addInstruction $ Do $ callGlobal pushScope [bindingName]
+  modifyEnvironment $ Map.insert name bindingName
+  _ <- synthFunctionBody (requiredPops + 1) body
+  modifyEnvironment $ const oldEnv
+
+synthFunctionBody requiredPops (App funcName argExprs) = do
+  -- find the function in the list of definitions
+  global <- gets $ \s -> fromMaybe (error ("Function not defined: " ++ funcName)) $ Map.lookup (mkName funcName) (defs s)
+  -- find all our arguments
+  args <- mapM synthAExpr argExprs
+  -- pop our local scope before we make the call
+  callPopScope requiredPops
+  result <- doInstruction (star $ IntegerType 32) $ callGlobal global args
+  finishBlock $ Do $ Ret (Just result) []
+
+synthFunctionBody requiredPops (AppClos closExpr argExprs) = do
+  clos <- synthAExpr closExpr
+  args <- mapM synthAExpr argExprs
+  result <- callClosure requiredPops True clos args
+  finishBlock $ Do $ Ret (Just result) []
+
+synthFunctionBody requiredPops other = synthExpr requiredPops other >>= finishBlock . Do . flip Ret [] . Just
+
+
 synthAExpr :: AExpr -> FreshCodegen Operand
 synthAExpr (Ref name) = do
   env <- gets environment
@@ -490,10 +528,10 @@ synthExpr requiredPops (App funcName argExprs) = do
   -- do the function call
   doInstruction (star $ IntegerType 32) $ callGlobal global args
 
-synthExpr requiredPops (AppClos isTailCall closExpr argExprs) = do
+synthExpr requiredPops (AppClos closExpr argExprs) = do
   clos <- synthAExpr closExpr
   args <- mapM synthAExpr argExprs
-  callClosure requiredPops isTailCall clos args
+  callClosure requiredPops False clos args
 
 synthExpr requiredPops (NewClos closName bindings) = do
   args <- mapM synthAExpr bindings

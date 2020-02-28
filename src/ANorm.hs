@@ -24,17 +24,10 @@ data Expr = Num Int
               Expr
               Expr
           | App String [AExpr]
-          | AppClos Bool AExpr [AExpr]
+          | AppClos AExpr [AExpr]
           | NewClos String [AExpr]
           | Atomic AExpr
           deriving (Eq, Show)
-
-
-markTailCall :: Expr -> Expr
-markTailCall (If0 c t f) = If0 c (markTailCall t) (markTailCall f)
-markTailCall (Let name value body) = Let name value $ markTailCall body
-markTailCall (AppClos False closure args) = AppClos True closure args
-markTailCall other = other
 
 
 freshBinding :: (Monad m, MonadFresh m) => String -> LL.Expr -> m (AExpr, Expr -> Expr)
@@ -85,7 +78,7 @@ aNormalizeExpr (LL.App name args) = do
 aNormalizeExpr (LL.AppClos closure args) = do
   (cRef, cLet) <- freshBinding "_clos_" closure
   (refs, binding) <- bindMany "_arg" args
-  return $ cLet $ binding $ AppClos False cRef refs
+  return $ cLet $ binding $ AppClos cRef refs
 
 aNormalizeExpr (LL.NewClos functionName envVars) = do
   (refs, binding) <- bindMany "_envVar" envVars
@@ -95,7 +88,7 @@ aNormalizeExpr (LL.GetEnv envName index) = pure $ Atomic $ GetEnv envName index
 
 
 aNormalizeDef :: (Monad m, MonadFresh m) => LL.Def -> m Def
-aNormalizeDef (LL.ClosureDef name envName argNames body) = ClosureDef name envName argNames . markTailCall <$> aNormalizeExpr body
+aNormalizeDef (LL.ClosureDef name envName argNames body) = ClosureDef name envName argNames <$> aNormalizeExpr body
 
 
 aNormalizeProg :: (Monad m, MonadFresh m) => LL.Prog -> m Prog

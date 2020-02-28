@@ -46,22 +46,10 @@ aNormTests = testGroup "A Normalization Tests"
 
   , testCase "closure" $ checkNormalization
       (LL.AppClos (LL.NewClos "_f0" []) [LL.Num 7])
-      (A.Let "_clos_0" (A.NewClos "_f0" []) (A.Let "_arg0_0" (A.Num 7) (A.AppClos False (A.Ref "_clos_0") [A.Ref "_arg0_0"])))
+      (A.Let "_clos_0" (A.NewClos "_f0" []) (A.Let "_arg0_0" (A.Num 7) (A.AppClos (A.Ref "_clos_0") [A.Ref "_arg0_0"])))
 
   , let input = LL.Prog [LL.ClosureDef "func" "_env" ["n"] (LL.Plus (LL.Ref "n") (LL.Num 5))] (LL.App "func" [LL.Num 1])
         expected = A.Prog [A.ClosureDef "func" "_env" ["n"] (A.Let "_add_b_0" (A.Num 5) (A.Plus (A.Ref "n") (A.Ref "_add_b_0")))]
                      (A.Let "_arg0_0" (A.Num 1) (A.App "func" [(A.Ref "_arg0_0")]))
     in testCase "prog" $ (evalFresh (A.aNormalizeProg input) Map.empty) @?= expected
-
-  , let input = emitLL "(let (f (lambda (n rec) (if0 n n (rec (- n 1))))) \
-                       \  (f 10 f))"
-        expected = A.Prog [A.ClosureDef "_f0" "_env" ["n", "rec"]
-                            (A.If0 (A.Ref "n")
-                              (A.Atomic (A.Ref "n"))
-                              (A.Let "_arg0_0" (A.Let "_sub_b_0" (A.Num 1) (A.Minus (A.Ref "n") (A.Ref "_sub_b_0")))
-                                (A.AppClos True (A.Ref "rec") [A.Ref "_arg0_0"])))]
-                     (A.Let "f" (A.NewClos "_f0" [])
-                       (A.Let "_arg0_1" (A.Num 10)
-                         (A.AppClos False (A.Ref "f") [A.Ref "_arg0_1", A.Ref "f"])))
-    in testCase "tail calls" $ (evalFresh (A.aNormalizeProg input) Map.empty) @?= expected
   ]
