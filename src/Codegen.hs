@@ -243,7 +243,7 @@ genModule (Prog progDefs expr) = do { moduleDefs <- allDefs; return defaultModul
 
       -- Run codegen for main
       uniqueName "entry" >>= startBlock
-      result <- synthExpr 0 expr
+      result <- synthExpr expr
 
       -- Print result
       printOperand result
@@ -424,8 +424,8 @@ numBinOp a b op = do
   allocNumber resultValue
 
 
-synthIf0 :: Int -> AExpr -> Expr -> Expr -> FreshCodegen Operand
-synthIf0 requiredPops c t f = do
+synthIf0 :: AExpr -> Expr -> Expr -> FreshCodegen Operand
+synthIf0 c t f = do
   condInt <- synthAExpr c >>= getNum
   condValue <- doInstruction (IntegerType 1) $ ICmp IPred.EQ condInt (ConstantOperand $ C.Int 32 0) []
   trueLabel <- uniqueName "trueBlock"
@@ -434,11 +434,11 @@ synthIf0 requiredPops c t f = do
   finishBlock $ Do $  CondBr condValue trueLabel falseLabel []
   -- Define the true block
   startBlock trueLabel
-  trueValue <- synthExpr requiredPops t
+  trueValue <- synthExpr t
   finishBlock $ Do $ Br exitLabel []
   -- Define the false block
   startBlock falseLabel
-  falseValue <- synthExpr requiredPops f
+  falseValue <- synthExpr f
   finishBlock $ Do $ Br exitLabel []
   -- get the correct output
   startBlock exitLabel
@@ -461,7 +461,7 @@ synthFunctionBody requiredPops (If0 c t f) = do
 
 synthFunctionBody requiredPops (Let name binding body) = do
   oldEnv <- gets environment
-  bindingName <- synthExpr 0 binding
+  bindingName <- synthExpr binding
   _ <- addInstruction $ Do $ callGlobal pushScope [bindingName]
   modifyEnvironment $ Map.insert name bindingName
   _ <- synthFunctionBody (requiredPops + 1) body
@@ -473,7 +473,7 @@ synthFunctionBody requiredPops (App funcName argExprs) = do
   -- find all our arguments
   args <- mapM synthAExpr argExprs
   -- pop our local scope before we make the call
-  callPopScope requiredPops
+  _ <- callPopScope requiredPops
   result <- doInstruction (star $ IntegerType 32) $ callGlobal global args
   finishBlock $ Do $ Ret (Just result) []
 
@@ -483,7 +483,10 @@ synthFunctionBody requiredPops (AppClos closExpr argExprs) = do
   result <- callClosure requiredPops True clos args
   finishBlock $ Do $ Ret (Just result) []
 
-synthFunctionBody requiredPops other = synthExpr requiredPops other >>= finishBlock . Do . flip Ret [] . Just
+synthFunctionBody requiredPops other = do
+  result <- synthExpr other
+  _ <- callPopScope requiredPops
+  finishBlock $ Do $ Ret (Just result) []
 
 
 synthAExpr :: AExpr -> FreshCodegen Operand
@@ -496,48 +499,47 @@ synthAExpr (GetEnv envName index) = do
   getFromEnv env index
 
 
-synthExpr :: Int -> Expr -> FreshCodegen Operand
-synthExpr requiredPops (Num n) = (allocNumber . ConstantOperand . C.Int 32 . fromIntegral $ n) <* callPopScope requiredPops
+synthExpr :: Expr -> FreshCodegen Operand
+synthExpr (Num n) = (allocNumber . ConstantOperand . C.Int 32 . fromIntegral $ n)
 
-synthExpr requiredPops (Plus a b) = numBinOp a b Add <* callPopScope requiredPops
+synthExpr (Plus a b) = numBinOp a b Add
 
-synthExpr requiredPops (Minus a b) = numBinOp a b Sub <* callPopScope requiredPops
+synthExpr (Minus a b) = numBinOp a b Sub
 
-synthExpr requiredPops (Mult a b) = numBinOp a b Mul <* callPopScope requiredPops
+synthExpr (Mult a b) = numBinOp a b Mul
 
-synthExpr requiredPops (Divide a b) = numBinOp a b (const SDiv) <* callPopScope requiredPops
+synthExpr (Divide a b) = numBinOp a b (const SDiv)
 
-synthExpr requiredPops (If0 c t f) = synthIf0 requiredPops c t f
+synthExpr (If0 c t f) = synthIf0 c t f
 
-synthExpr requiredPops (Let name binding body) = do
+synthExpr (Let name binding body) = do
   oldEnv <- gets environment
-  bindingName <- synthExpr 0 binding
+  bindingName <- synthExpr binding
   _ <- addInstruction $ Do $ callGlobal pushScope [bindingName]
   modifyEnvironment $ Map.insert name bindingName
-  resultName <- synthExpr (requiredPops + 1) body
+  resultName <- synthExpr body
+  _ <- callPopScope 1
   modifyEnvironment $ const oldEnv
   return resultName
 
-synthExpr requiredPops (App funcName argExprs) = do
+synthExpr (App funcName argExprs) = do
   -- find the function in the list of definitions
   global <- gets $ \s -> fromMaybe (error ("Function not defined: " ++ funcName)) $ Map.lookup (mkName funcName) (defs s)
   -- find all our arguments
   args <- mapM synthAExpr argExprs
-  -- pop our local scope before we make the call
-  callPopScope requiredPops
   -- do the function call
   doInstruction (star $ IntegerType 32) $ callGlobal global args
 
-synthExpr requiredPops (AppClos closExpr argExprs) = do
+synthExpr (AppClos closExpr argExprs) = do
   clos <- synthAExpr closExpr
   args <- mapM synthAExpr argExprs
-  callClosure requiredPops False clos args
+  callClosure 0 False clos args
 
-synthExpr requiredPops (NewClos closName bindings) = do
+synthExpr (NewClos closName bindings) = do
   args <- mapM synthAExpr bindings
-  allocClosure (mkName closName) args <* callPopScope requiredPops
+  allocClosure (mkName closName) args
 
-synthExpr requiredPops (Atomic a) = synthAExpr a <* callPopScope requiredPops
+synthExpr (Atomic a) = synthAExpr a
 
 
 doInstruction :: Type -> Instruction -> FreshCodegen Operand
