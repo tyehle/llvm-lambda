@@ -6,6 +6,8 @@ ADD stack.yaml .
 ADD package.yaml .
 RUN stack --no-terminal --install-ghc test --bench --only-dependencies
 
+WORKDIR ~/
+
 # RUN stack --no-terminal build
 
 # CMD stack --no-terminal test --bench --no-run-benchmarks --haddock --no-haddock-deps

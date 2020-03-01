@@ -14,7 +14,4 @@ jobs:
       run: docker build --tag=llvm-lambda-ci --file=Dockerfile .
 
     - name: Build
-      run: docker run llvm-lambda-ci 'stack build'
-
-    - name: Test
-      run: docker run llvm-lambda-ci 'stack test'
+      run: docker run --mount "type=bind,src=$(pwd),dst=/root/llvm-lambda" llvm-lambda-ci bash -c 'cd ~/llvm-lambda && stack build && stack test'
