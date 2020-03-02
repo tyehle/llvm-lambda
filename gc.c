@@ -127,12 +127,3 @@ void __push_scope(int32_t* loc) {
 void __pop_scope() {
     __pop(&__objects_in_scope);
 }
-
-// int main() {
-//     push(&all_objects, (void*) 10);
-//     void* result = pop(&all_objects);
-
-//     printf("%d\n", (int) result);
-
-//     return 0;
-// }
