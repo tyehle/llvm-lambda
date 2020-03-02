@@ -20,13 +20,13 @@ jobs:
 
     - name: Load Cache
       if: steps.cache.outputs.cache-hit == 'true'
-      run: docker load --input=docker-cache/image.tar
+      run: gunzip --stdout docker-cache/image.tar.gz | docker load
 
     - name: Build Image
       run: |
         docker build --tag=llvm-lambda-ci --file=Dockerfile .
         mkdir -p docker-cache
-        docker save llvm-lambda-ci --output=docker-cache/image.tar
+        docker save llvm-lambda-ci | gzip > docker-cache/image.tar.gz
 
     - name: Build
       run: docker run --mount "type=bind,src=$(pwd),dst=/root/llvm-lambda" llvm-lambda-ci stack --no-terminal --allow-different-user test --bench --no-run-benchmarks --haddock --no-haddock-deps
