@@ -29,4 +29,4 @@ jobs:
         docker save llvm-lambda-ci | gzip > docker-cache/image.tar.gz
 
     - name: Build
-      run: docker run --mount "type=bind,src=$(pwd),dst=/root/llvm-lambda" llvm-lambda-ci stack --no-terminal --allow-different-user test --bench --no-run-benchmarks --haddock --no-haddock-deps
+      run: docker run --mount "type=bind,src=$(pwd),dst=/root/llvm-lambda" llvm-lambda-ci stack --allow-different-user test
