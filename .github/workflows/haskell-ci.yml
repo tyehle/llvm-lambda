@@ -20,7 +20,7 @@ jobs:
       uses: actions/cache@v1
       with:
         path: ~/.stack/
-        key: stack-${{ hashFiles("package.yaml", "stack.yaml") }}
+        key: stack-${{ hashFiles("package.yaml") }}-${{ hashFiles("stack.yaml") }}
         restore-keys: stack
 
     - name: Cache Local Stack
