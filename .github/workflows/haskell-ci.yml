@@ -25,7 +25,7 @@ jobs:
       run: docker build --tag=llvm-lambda-ci --file=Dockerfile .
 
     - name: Save Layers
-      run: docker save llvm-lambda-ci --output=docker-cache/image.tar
+      run: mkdir -p docker-cache && docker save llvm-lambda-ci --output=docker-cache/image.tar
 
     - name: Build
       run: docker run --mount "type=bind,src=$(pwd),dst=/root/llvm-lambda" llvm-lambda-ci stack --no-terminal --allow-different-user test --bench --no-run-benchmarks --haddock --no-haddock-deps
