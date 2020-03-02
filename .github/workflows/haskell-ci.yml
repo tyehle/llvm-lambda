@@ -8,7 +8,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - name: Checkout
+      uses: actions/checkout@v2
 
     - name: Cache Docker Image
       id: cache
@@ -22,10 +23,10 @@ jobs:
       run: docker load --input=docker-cache/image.tar
 
     - name: Build Image
-      run: docker build --tag=llvm-lambda-ci --file=Dockerfile .
-
-    - name: Save Layers
-      run: mkdir -p docker-cache && docker save llvm-lambda-ci --output=docker-cache/image.tar
+      run: |
+        docker build --tag=llvm-lambda-ci --file=Dockerfile .
+        mkdir -p docker-cache
+        docker save llvm-lambda-ci --output=docker-cache/image.tar
 
     - name: Build
       run: docker run --mount "type=bind,src=$(pwd),dst=/root/llvm-lambda" llvm-lambda-ci stack --no-terminal --allow-different-user test --bench --no-run-benchmarks --haddock --no-haddock-deps
