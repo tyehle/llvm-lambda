@@ -10,8 +10,22 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
+    - name: Cache Docker Image
+      id: cache
+      uses: actions/cache@v1
+      with:
+        path: docker-cache/
+        key: docker-image-cache
+
+    - name: Load Cache
+      if: steps.cache.outputs.cache-hit == 'true'
+      run: docker load --input=docker-cache/image.tar
+
     - name: Build Image
       run: docker build --tag=llvm-lambda-ci --file=Dockerfile .
 
+    - name: Save Layers
+      run: docker save llvm-lambda-ci --output=docker-cache/image.tar
+
     - name: Build
-      run: docker run --mount "type=bind,src=$(pwd),dst=/root/llvm-lambda" llvm-lambda-ci stack --no-terminal test --bench --no-run-benchmarks --haddock --no-haddock-deps
+      run: docker run --mount "type=bind,src=$(pwd),dst=/root/llvm-lambda" llvm-lambda-ci stack --no-terminal --allow-different-user test --bench --no-run-benchmarks --haddock --no-haddock-deps
