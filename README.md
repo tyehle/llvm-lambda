@@ -1,2 +1,4 @@
+![Build](https://github.com/tyehle/llvm-lambda/workflows/Build/badge.svg?branch=master)
+
 # llvm-lambda
-a compiler for the lambda calculus using llvm
+A compiler for a small language with lambda functions using llvm.
