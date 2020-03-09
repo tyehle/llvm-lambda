@@ -23,13 +23,6 @@ jobs:
         key: stack-global-${{ hashFiles('package.yaml') }}-${{ hashFiles('stack.yaml') }}
         restore-keys: stack-global
 
-    - name: Cache Local Stack
-      uses: actions/cache@v1
-      with:
-        path: .stack-work/
-        key: stack-work-${{ hashFiles('package.yaml') }}-${{ hashFiles('stack.yaml') }}
-        restore-keys: stack-work
-
     - name: Install Dependencies
       run: stack --no-terminal --install-ghc test --only-dependencies
 
