@@ -17,7 +17,7 @@ checkNormalization :: LL.Expr -> A.Expr -> Assertion
 checkNormalization input expected = runNormalization input @?= expected
 
 emitLL :: String -> LL.Prog
-emitLL input = LL.runConvert (either error id $ parse input) Set.empty
+emitLL input = LL.runConvert (either error id $ parse "" input) Set.empty
 
 mainBody :: LL.Prog -> LL.Expr
 mainBody (LL.Prog defs body) = body

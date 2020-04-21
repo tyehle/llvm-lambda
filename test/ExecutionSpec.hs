@@ -1,9 +1,8 @@
 module ExecutionSpec (findExecutionTests) where
 
-import qualified Data.AttoLisp as L
-import Data.Attoparsec.ByteString (parseOnly, endOfInput, string, takeByteString)
+-- import qualified Data.AttoLisp as L
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.ByteString.Lazy as LBS
+-- import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.UTF8 as BSU
 import qualified Data.ByteString.Lazy.UTF8 as BLU
 import qualified Data.Map as Map
@@ -32,7 +31,7 @@ toLLVM input = evalFresh (A.aNormalizeProg lowLevel >>= generate) Map.empty
 goldenTest :: String -> TestTree
 goldenTest tlFile = goldenVsString (takeBaseName tlFile) goldFile $ do
   input <- readFile tlFile
-  let ast = either error id $ parse input
+  let ast = either error id $ parse tlFile input
   llvm <- toLLVM ast
   _ <- readProcess "llc-5.0" ["-O2", "-filetype=asm", "-o", asmFile] $ BSU.toString llvm
   _ <- readProcess "clang" ["-c", "gc.c"] ""

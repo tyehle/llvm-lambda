@@ -25,7 +25,7 @@ runPipeline :: String -> IO BS.ByteString
 runPipeline input = evalFresh (A.aNormalizeProg lowLevel >>= generate) Map.empty
   where
     globals = Set.fromList ["printf"]
-    ast = either error id $ parse input
+    ast = either error id $ parse "input" input
     lowLevel = LL.runConvert ast globals
 
 

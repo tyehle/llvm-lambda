@@ -20,13 +20,10 @@ extra-source-files:
 description:         Please see the README on Github at <https://github.com/tyehle/llvm-lambda#readme>
 
 dependencies:
-- base >= 4.7 && < 5
-- atto-lisp
+- base
 - bytestring
 - containers
-- attoparsec
-- utf8-string
-- text
+- megaparsec
 
 library:
   source-dirs: src
@@ -47,8 +44,6 @@ executables:
     - -Wno-deprecations
     dependencies:
     - llvm-lambda
-    - bytestring
-    - containers
 
 tests:
   llvm-lambda-test:
@@ -66,3 +61,4 @@ tests:
     - tasty-hunit
     - tasty-golden
     - process
+    - utf8-string
