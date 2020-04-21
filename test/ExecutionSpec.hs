@@ -33,7 +33,7 @@ goldenTest tlFile = goldenVsString (takeBaseName tlFile) goldFile $ do
   input <- readFile tlFile
   let ast = either error id $ parse tlFile input
   llvm <- toLLVM ast
-  _ <- readProcess "llc-5.0" ["-O2", "-filetype=asm", "-o", asmFile] $ BSU.toString llvm
+  _ <- readProcess "llc-9" ["-O2", "-filetype=asm", "-o", asmFile] $ BSU.toString llvm
   _ <- readProcess "clang" ["-c", "gc.c"] ""
   _ <- readProcess "clang" [asmFile, "gc.o", "-o", exeFile] ""
   _ <- removeFile asmFile
