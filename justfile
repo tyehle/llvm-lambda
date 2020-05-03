@@ -5,6 +5,7 @@ build:
 
 install-dev-deps:
     stack --install-ghc test --only-dependencies
+    stack build hlint
 
 @run:
     # to link without clang:
