@@ -1,10 +1,10 @@
 #!/usr/bin/env just --justfile
 
-install-dev-deps:
-    stack --install-ghc test --only-dependencies
-
 build:
     stack build
+
+install-dev-deps:
+    stack --install-ghc test --only-dependencies
 
 @run:
     # to link without clang:
