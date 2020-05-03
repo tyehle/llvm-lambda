@@ -16,7 +16,7 @@ import ParseLisp
 parse :: String -> String -> Either String Expr
 parse filename = first M.errorBundlePretty . M.parse parser filename
   where
-    parser = expression <* sc <* M.eof >>= translation
+    parser = wholeFile >>= translation
 
 
 translation :: MonadFail m => Lisp -> m Expr

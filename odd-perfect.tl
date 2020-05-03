@@ -1,3 +1,5 @@
+; Find the first odd perfect number
+
 (let (mod (lambda (n m) (- n (* (/ n m) m))))
   (let (aliquot-sum (lambda (n)
                       (let (go (lambda (rec total i)
