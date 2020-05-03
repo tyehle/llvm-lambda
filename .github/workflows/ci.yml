@@ -15,10 +15,9 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y llvm-9-dev
-        cargo install just
         #echo $PATH
         # install just
-        #curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to opt
+        curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/share/rust/.cargo/bin
 
     - name: Cache Global Stack
       uses: actions/cache@v1
@@ -28,10 +27,10 @@ jobs:
         restore-keys: stack-global
 
     - name: Install Dependencies
-      run: stack --no-terminal --install-ghc test --only-dependencies
+      run: just install-dev-deps
 
     - name: Build
-      run: stack build
+      run: just build
 
     - name: Test
-      run: stack test
+      run: just check
