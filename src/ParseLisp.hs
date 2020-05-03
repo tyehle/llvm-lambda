@@ -23,7 +23,7 @@ sc :: Parser ()
 sc = L.space (void spaceChar) lineComment blockComment
   where
     lineComment = L.skipLineComment ";"
-    blockComment = empty
+    blockComment = void $ symbol "#;" *> expression
 
 
 lexeme :: Parser a -> Parser a
