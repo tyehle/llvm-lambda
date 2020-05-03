@@ -16,7 +16,7 @@ test:
     stack test
 
 lint:
-    stack exec hlint -- app src test --report
+    stack exec hlint -- app src test
 
 check: test lint
 
