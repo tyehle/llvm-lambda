@@ -39,8 +39,10 @@ void __mark_heap_objects(int32_t* start) {
 
     if(*start == (0 | mark)) {
         // this is a closure
+        // | 4 byte tag | 2 byte arity | 2 byte size | 8? byte function pointer | 8? bytes env pointers ...
         uint16_t env_size = ((uint16_t*)start)[3];
-        int32_t** env = &((int32_t**)start)[2];
+        int32_t** pointer_array = (int32_t**)&start[1];
+        int32_t** env = &pointer_array[1];
         for(uint16_t i = 0; i < env_size; i++) {
             __mark_heap_objects(env[i]);
         }

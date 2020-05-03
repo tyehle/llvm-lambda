@@ -2,6 +2,7 @@
 
 build:
     stack build
+    clang -c gc.c
 
 install-dev-deps:
     stack --install-ghc test --only-dependencies
