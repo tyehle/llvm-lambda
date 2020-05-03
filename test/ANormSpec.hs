@@ -50,6 +50,6 @@ aNormTests = testGroup "A Normalization Tests"
 
   , let input = LL.Prog [LL.ClosureDef "func" "_env" ["n"] (LL.Plus (LL.Ref "n") (LL.Num 5))] (LL.App "func" [LL.Num 1])
         expected = A.Prog [A.ClosureDef "func" "_env" ["n"] (A.Let "_add_b_0" (A.Num 5) (A.Plus (A.Ref "n") (A.Ref "_add_b_0")))]
-                     (A.Let "_arg0_0" (A.Num 1) (A.App "func" [(A.Ref "_arg0_0")]))
-    in testCase "prog" $ (evalFresh (A.aNormalizeProg input) Map.empty) @?= expected
+                     (A.Let "_arg0_0" (A.Num 1) (A.App "func" [A.Ref "_arg0_0"]))
+    in testCase "prog" $ evalFresh (A.aNormalizeProg input) Map.empty @?= expected
   ]

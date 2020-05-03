@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, GeneralizedNewtypeDeriving, FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings, GeneralizedNewtypeDeriving, FlexibleContexts, TupleSections #-}
 
 module Codegen where
 
@@ -500,7 +500,7 @@ synthAExpr (GetEnv envName index) = do
 
 
 synthExpr :: Expr -> FreshCodegen Operand
-synthExpr (Num n) = (allocNumber . ConstantOperand . C.Int 32 . fromIntegral $ n)
+synthExpr (Num n) = allocNumber . ConstantOperand . C.Int 32 . fromIntegral $ n
 
 synthExpr (Plus a b) = numBinOp a b Add
 
@@ -594,7 +594,7 @@ callGlobal func argOps = Call Nothing cc retAttrs fOp args fAttrs []
     cc = G.callingConvention func
     retAttrs = G.returnAttributes func
     fAttrs = G.functionAttributes func
-    args = map (flip (,) []) argOps
+    args = map (, []) argOps
     fOp = Right $ ConstantOperand $ C.GlobalReference ptrType (G.name func)
     ptrType = PointerType (FunctionType retType argTypes varArgs) (AddrSpace 0)
     retType = G.returnType func

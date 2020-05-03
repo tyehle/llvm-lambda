@@ -31,8 +31,8 @@ data Expr = Num Int
 
 
 freshBinding :: (Monad m, MonadFresh m) => String -> LL.Expr -> m (AExpr, Expr -> Expr)
-freshBinding _ (LL.Ref name) = pure $ (Ref name, id)
-freshBinding _ (LL.GetEnv envName index) = pure $ (GetEnv envName index, id)
+freshBinding _ (LL.Ref name) = pure (Ref name, id)
+freshBinding _ (LL.GetEnv envName index) = pure (GetEnv envName index, id)
 freshBinding prefix value = do
   name <- (prefix ++) . show <$> next prefix
   normalValue <- aNormalizeExpr value
@@ -42,7 +42,7 @@ freshBinding prefix value = do
 bindMany :: (Monad m, MonadFresh m) => String -> [LL.Expr] -> m ([AExpr], Expr -> Expr)
 bindMany prefix values = do
   binders <- mapM (\(i, expr) -> freshBinding (prefix ++ show i ++ "_") expr) $ zip [0..] values
-  return (map fst binders, \body -> foldr ($) body $ map snd binders)
+  return (map fst binders, \body -> foldr snd body binders)
 
 
 aNormalizeBinOp :: (Monad m, MonadFresh m) => String -> LL.Expr -> LL.Expr -> (AExpr -> AExpr -> Expr) -> m Expr

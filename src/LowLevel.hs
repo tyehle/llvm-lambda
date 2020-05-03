@@ -105,7 +105,7 @@ convert (HL.Lambda args body) = do
 
 convert (HL.App (HL.Ref name) args) = do
   args' <- mapM convert args
-  isGlobal <- Set.member name <$> ask
+  isGlobal <- asks $ Set.member name
   if isGlobal
     then return $ App name args'
     else return $ AppClos (Ref name) args'
