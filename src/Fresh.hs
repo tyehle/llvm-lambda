@@ -7,7 +7,7 @@ import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Control.Monad.Identity
 import Control.Monad.State.Strict
-import Control.Monad.Trans.State.Strict (liftListen, liftPass, mapStateT)
+import Control.Monad.Trans.State.Strict (liftListen, liftPass)
 import Control.Monad.Writer
 import Control.Monad.Reader
 import Data.ByteString.Char8 (pack)

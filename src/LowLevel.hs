@@ -62,7 +62,7 @@ instance Scope Expr where
   freeVars (App name args) = Set.unions $ Set.singleton name : map freeVars args
   freeVars (AppClos fn args) = Set.unions . map freeVars $ fn : args
   freeVars (NewClos fnName bindings) = Set.unions $ Set.singleton fnName : map freeVars bindings
-  freeVars (GetEnv envName _) = Set.empty
+  freeVars (GetEnv _ _) = Set.empty
 
 
 runConvert :: HL.Expr -> Set String -> Prog
@@ -71,19 +71,22 @@ runConvert body globals = Prog (reverse newDefs) newBody
     (newBody, newDefs) = runWriter . flip runReaderT globals . flip evalFreshT Map.empty . convert $ body
 
 
-convertNumBinOp :: HL.Expr -> HL.Expr -> (Expr -> Expr -> Expr) -> FreshT (ReaderT (Set String) (Writer [Def])) Expr
+convertNumBinOp :: HL.Expr -> HL.Expr -> HL.BinOp -> FreshT (ReaderT (Set String) (Writer [Def])) Expr
 convertNumBinOp a b op = do
   a' <- convert a
   b' <- convert b
-  return $ op a' b'
+  return $ constructor a' b'
+  where
+    constructor = case op of
+      HL.Add -> Plus
+      HL.Sub -> Minus
+      HL.Mul -> Mult
+      HL.Div -> Divide
 
 
 convert :: HL.Expr -> FreshT (ReaderT (Set String) (Writer [Def])) Expr
 convert (HL.Nat n) = return $ Num n
-convert (HL.Plus a b) = convertNumBinOp a b Plus
-convert (HL.Minus a b) = convertNumBinOp a b Minus
-convert (HL.Mult a b) = convertNumBinOp a b Mult
-convert (HL.Divide a b) = convertNumBinOp a b Divide
+convert (HL.BinOp op a b) = convertNumBinOp a b op
 convert (HL.If0 c t f) = do
   c' <- convert c
   t' <- convert t
@@ -138,4 +141,4 @@ subst vars envName (Ref name) = case Map.lookup name vars of
 subst vars envName (AppClos func args) = AppClos (subst vars envName func) (map (subst vars envName) args)
 subst vars envName (App name args) = App name $ map (subst vars envName) args
 subst vars envName (NewClos name bindings) = NewClos name $ map (subst vars envName) bindings
-subst vars _ (GetEnv envName index) = GetEnv envName index
+subst _ _ (GetEnv envName index) = GetEnv envName index

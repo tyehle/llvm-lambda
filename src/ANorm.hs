@@ -1,7 +1,5 @@
 module ANorm where
 
-import Control.Monad (foldM)
-
 import Fresh
 import qualified LowLevel as LL
 
@@ -41,8 +39,11 @@ freshBinding prefix value = do
 
 bindMany :: (Monad m, MonadFresh m) => String -> [LL.Expr] -> m ([AExpr], Expr -> Expr)
 bindMany prefix values = do
-  binders <- mapM (\(i, expr) -> freshBinding (prefix ++ show i ++ "_") expr) $ zip [0..] values
+  binders <- sequence $ zipWith indexedBinding [0..] values
   return (map fst binders, \body -> foldr snd body binders)
+  where
+    indexedBinding :: (Monad m, MonadFresh m) => Int -> LL.Expr -> m (AExpr, Expr -> Expr)
+    indexedBinding i = freshBinding $ prefix ++ show i ++ "_"
 
 
 aNormalizeBinOp :: (Monad m, MonadFresh m) => String -> LL.Expr -> LL.Expr -> (AExpr -> AExpr -> Expr) -> m Expr
