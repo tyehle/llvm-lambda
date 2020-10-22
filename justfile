@@ -29,7 +29,7 @@ push: check
 # Development
 
 ghcid:
-    stack exec -- ghcid --command='stack ghci'
+    stack exec -- ghcid --command='stack ghci --pedantic'
 
 interactive-test:
     stack exec -- ghcid --command='stack ghci --test --main-is llvm-lambda:test:llvm-lambda-test' --run
