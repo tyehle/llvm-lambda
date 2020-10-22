@@ -32,5 +32,5 @@ ghcid:
     stack exec -- ghcid --command='stack ghci --pedantic'
 
 interactive-test:
-    stack exec -- ghcid --command='stack ghci --test --main-is llvm-lambda:test:llvm-lambda-test' --run
+    stack exec -- ghcid --run --clear --no-height-limit --command='stack ghci --test --main-is=llvm-lambda:test:llvm-lambda-test' --setup=':set args --hide-successes --color=always'
 
