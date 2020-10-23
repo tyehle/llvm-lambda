@@ -33,6 +33,13 @@ void* __pop(cell** where) {
 void __mark_heap_objects(int32_t* start) {
     // mark this object as visited
     int32_t mark = 0x8000;
+
+    // allow recursive data structures
+    if(*start & mark) {
+        // we have already seen this object
+        return;
+    }
+
     *start |= mark;
 
     // printf("Marking %p\n", start);
