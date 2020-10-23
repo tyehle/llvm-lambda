@@ -49,9 +49,9 @@ parseKeyword keyword exprs = case keyword of
     [List [name, value], body] -> Let <$> parseIdentifier name <*> translate value <*> translate body
     _ -> syntaxError
 
-  -- "letrec" -> case exprs of
-  --   [List [name, value], body] -> Letrec <$> parseIdentifier name <*> translate value <*> translate body
-  --   _ -> syntaxError
+  "letrec" -> case exprs of
+    [List [name, value], body] -> Letrec <$> parseIdentifier name <*> translate value <*> translate body
+    _ -> syntaxError
 
   "if0" -> case exprs of
     [c, t, f] -> If0 <$> translate c <*> translate t <*> translate f
