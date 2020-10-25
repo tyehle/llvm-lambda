@@ -15,24 +15,27 @@ import Test.Tasty.Golden
 
 import qualified ANorm as A
 import Codegen (generate)
-import Expr
 import Fresh (evalFresh)
+import Infer
 import qualified LowLevel as LL
 import Parsing (parse)
 
 
-toLLVM :: Expr -> IO BS.ByteString
-toLLVM input = evalFresh (A.aNormalizeProg lowLevel >>= generate) Map.empty
+toLLVM :: String -> String -> IO BS.ByteString
+toLLVM filename input = evalFresh (A.aNormalizeProg lowLevel >>= generate) Map.empty
   where
     globals = Set.fromList ["printf"]
-    lowLevel = LL.runConvert input globals
+    ast = either error id $ do
+      expr <- parse filename input
+      _ <- infer expr
+      return expr
+    lowLevel = LL.runConvert ast globals
 
 
 goldenTest :: String -> TestTree
 goldenTest tlFile = goldenVsString (takeBaseName tlFile) goldFile $ do
   input <- readFile tlFile
-  let ast = either error id $ parse tlFile input
-  llvm <- toLLVM ast
+  llvm <- toLLVM tlFile input
   _ <- readProcess "llc-9" ["-O2", "-filetype=asm", "-o", asmFile] $ BSU.toString llvm
   _ <- readProcess "clang" ["-c", "gc.c"] ""
   _ <- readProcess "clang" [asmFile, "gc.o", "-o", exeFile] ""
