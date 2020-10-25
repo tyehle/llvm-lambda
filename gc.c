@@ -31,24 +31,27 @@ void* __pop(cell** where) {
 }
 
 void __mark_heap_objects(int32_t* start) {
-    // mark this object as visited
-    int32_t mark = 0x8000;
+    int32_t mark = 0x80000000;
+
+    // printf("Marking %p\n", start);
+    // printf("Tag: 0x%08x\n", *start);
 
     // allow recursive data structures
     if(*start & mark) {
         // we have already seen this object
+        // printf("Already marked\n");
         return;
     }
 
+    // mark this object as visited
     *start |= mark;
-
-    // printf("Marking %p\n", start);
 
     if(*start == (0 | mark)) {
         // this is a closure
         // | 4 byte tag | 2 byte arity | 2 byte size | 8? byte function pointer | 8? bytes env pointers ...
         uint16_t env_size = ((uint16_t*)start)[3];
-        int32_t** pointer_array = (int32_t**)&start[1];
+        // printf("%d environment entries\n", env_size);
+        int32_t** pointer_array = (int32_t**)&(start[2]);
         int32_t** env = &pointer_array[1];
         for(uint16_t i = 0; i < env_size; i++) {
             __mark_heap_objects(env[i]);
@@ -64,12 +67,13 @@ void __mark_heap_objects(int32_t* start) {
 }
 
 void __run_gc() {
-    // printf("Running GC\n");
+    // printf("================================== Running GC ==================================\n");
     cell* current;
 
     // Mark all visible objects
     current = __objects_in_scope;
     while(current != 0) {
+        // printf("Marking object in scope %p\n", current->value);
         __mark_heap_objects(current->value);
         current = current->prev;
     }
@@ -79,10 +83,10 @@ void __run_gc() {
     current = __all_objects;
     while(current != 0) {
         int32_t tag = *(current->value);
-        if(tag & 0x8000) {
+        if(tag & 0x80000000) {
             // this object has been marked
             // remove the tag
-            *(current->value) &= 0x7FFF;
+            *(current->value) &= 0x7FFFFFFF;
             // move on to the next item
             previous = current;
             current = current->prev;

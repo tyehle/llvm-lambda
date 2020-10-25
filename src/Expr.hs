@@ -1,3 +1,6 @@
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+
 module Expr where
 
 import qualified Data.Set as Set
@@ -5,14 +8,15 @@ import qualified Data.Map as Map
 
 import Scope
 
+newtype VarIdent = VarIdent String deriving (Eq, Ord, Show)
 
 data Expr = Nat Int
           | BinOp BinOp Expr Expr
           | If0 Expr Expr Expr
-          | Ref String
-          | Let String Expr Expr
-          | Letrec String Expr Expr
-          | Lambda [String] Expr
+          | Ref VarIdent
+          | Let VarIdent Expr Expr
+          | Letrec VarIdent Expr Expr
+          | Lambda [VarIdent] Expr
           | App Expr [Expr]
           deriving (Eq, Ord, Show)
 
@@ -26,7 +30,7 @@ data BinOp
   deriving (Eq, Ord, Show)
 
 
-instance Scope Expr where
+instance Scope Expr VarIdent where
   freeVars (Nat _) = Set.empty
   freeVars (BinOp _ a b) = freeVars a `Set.union` freeVars b
   freeVars (If0 c t f) = Set.unions [freeVars c, freeVars t, freeVars f]
@@ -36,6 +40,7 @@ instance Scope Expr where
   freeVars (Lambda args body) = freeVars body `Set.difference` Set.fromList args
   freeVars (App fn args) = Set.unions $ map freeVars (fn:args)
 
+instance Substitute Expr where
   substitute trySub expr = case trySub expr of
     Just ex -> ex
     Nothing -> case expr of
@@ -51,10 +56,10 @@ instance Scope Expr where
       recur = substitute trySub
 
 
-replaceRefs :: Map.Map String Expr -> Expr -> Expr
+replaceRefs :: Map.Map VarIdent Expr -> Expr -> Expr
 replaceRefs initialSubs = substitute $ go initialSubs
   where
-    go :: Map.Map String Expr -> Expr -> Maybe Expr
+    go :: Map.Map VarIdent Expr -> Expr -> Maybe Expr
     go subs (Ref name) = substitute (go $ Map.delete name subs) <$> Map.lookup name subs
     go subs (Let name value body) = Just $ Let name (substitute (go subs) value) (substitute (go $ Map.delete name subs) body)
     go subs (Letrec name value body) = let subs' = Map.delete name subs in Just $ Letrec name (substitute (go subs') value) (substitute (go subs') body)

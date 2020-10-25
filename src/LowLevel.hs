@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses #-}
 module LowLevel where
 
 import qualified Data.Map as Map
@@ -49,7 +50,7 @@ data Expr = Num Int
           deriving (Eq, Show)
 
 
-instance Scope Expr where
+instance Scope Expr [Char] where
   freeVars expr = case expr of
     Num _ -> Set.empty
     Plus a b -> freeVars a `Set.union` freeVars b
@@ -64,6 +65,7 @@ instance Scope Expr where
     NewClos fnName bindings -> Set.unions $ Set.singleton fnName : map freeVars bindings
     GetEnv _ _ -> Set.empty
 
+instance Substitute Expr where
   substitute trySub expr = case trySub expr of
     Just ex -> ex
     Nothing -> case expr of
@@ -113,7 +115,7 @@ convert (HL.If0 c t f) = do
   f' <- convert f
   return $ If0 c' t' f'
 
-convert (HL.Let name binding body) = do
+convert (HL.Let (HL.VarIdent name) binding body) = do
   bind <- convert binding
   body' <- convert body
   return $ Let name bind body'
@@ -126,19 +128,20 @@ convert (HL.Letrec name binding body) = do
       body' = substitute sub body
   convert (HL.Let name binding' body')
 
-convert (HL.Ref r) = return $ Ref r
+convert (HL.Ref (HL.VarIdent name)) = return $ Ref name
 
 convert expr@(HL.Lambda args body) = do
-  let free = Set.toList $ freeVars expr
+  let unwrap (HL.VarIdent name) = name
+      free = map unwrap $ Set.toList $ freeVars expr
       indices = Map.fromList $ zip free [0..]
       sub (Ref name) = GetEnv "_env" <$> Map.lookup name indices
       sub _ = Nothing
   name <- freshFunc
   body' <- convert body
-  tell [ClosureDef name "_env" args (substitute sub body')]
+  tell [ClosureDef name "_env" (map unwrap args) (substitute sub body')]
   return $ NewClos name $ map Ref free
 
-convert (HL.App (HL.Ref name) args) = do
+convert (HL.App (HL.Ref (HL.VarIdent name)) args) = do
   args' <- mapM convert args
   isGlobal <- asks $ Set.member name
   if isGlobal

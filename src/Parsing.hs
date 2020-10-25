@@ -74,10 +74,10 @@ parseKeyword keyword exprs = case keyword of
       _ -> syntaxError
 
 
-parseIdentifier :: MonadFail m => Lisp -> m String
+parseIdentifier :: MonadFail m => Lisp -> m VarIdent
 parseIdentifier expr = case expr of
   (Symbol name) | invalid name -> fail $ "Invalid identifier: " ++ name
-  (Symbol name) -> return name
+  (Symbol name) -> return $ VarIdent name
   bad -> fail $ "Invalid identifier: " ++ show bad
   where
     invalid name = Set.member name keywords || isPrefixOf "__" name

@@ -9,8 +9,10 @@ import qualified ANorm as A
 import Codegen
 import Expr
 import Fresh (evalFresh)
+import Infer
 import qualified LowLevel as LL
 import Parsing
+import Pretty
 
 
 getInput :: IO String
@@ -25,8 +27,23 @@ runPipeline :: String -> IO BS.ByteString
 runPipeline input = evalFresh (A.aNormalizeProg lowLevel >>= generate) Map.empty
   where
     globals = Set.fromList ["printf"]
-    ast = either error id $ parse "input" input
+    ast = either error id $ do
+      expr <- parse "input" input
+      _ <- infer expr
+      return expr
     lowLevel = LL.runConvert ast globals
+
+
+showLL :: String -> String
+showLL input = pretty lowLevel
+  where
+    globals = Set.fromList ["printf"]
+    ast = either error id $ do
+      expr <- parse "input" input
+      _ <- infer expr
+      return expr
+    lowLevel = LL.runConvert ast globals
+
 
 
 main :: IO ()
