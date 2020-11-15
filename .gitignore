@@ -25,3 +25,4 @@ llvm-lambda.cabal
 *.s
 *.out
 gen.*
+gen-opt.*
