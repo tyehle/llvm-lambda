@@ -1,0 +1,143 @@
+{-# LANGUAGE NamedFieldPuns, OverloadedStrings, QuasiQuotes #-}
+
+module RuntimeSpec (makeRuntimeTests) where
+
+import qualified Control.Monad as M (void)
+import qualified Data.ByteString.UTF8 as BSU
+import System.Directory (removeFile, createDirectoryIfMissing)
+import System.Process (readProcess)
+import Test.Tasty
+import Test.Tasty.HUnit
+import Text.RawString.QQ
+import Text.Regex.Posix
+
+import LLVM.AST (Module)
+import LLVM.AST.Type
+import LLVM.AST.Operand
+import LLVM.Context
+import LLVM.IRBuilder.Module
+import LLVM.IRBuilder.Monad
+import LLVM.IRBuilder.Instruction
+import LLVM.IRBuilder.Constant
+import LLVM.Module hiding (Module)
+
+import RuntimeDefs
+
+
+printObj :: (MonadIRBuilder m, MonadModuleBuilder m) => RuntimeRefs -> Operand -> m ()
+printObj RuntimeRefs{printObject} obj = do
+  ptr <- bitcast obj (ptr i8)
+  _ <- call printObject [(ptr, [])]
+  return ()
+
+printPtr :: (MonadIRBuilder m, MonadModuleBuilder m) => RuntimeRefs -> Operand -> m ()
+printPtr RuntimeRefs{printf} ptr = do
+  formatString <- globalStringPtr "%p\n" "ptr_fmt_string"
+  call printf [(ConstantOperand formatString, []), (ptr, [])]
+  return ()
+
+
+runtimeTest :: String -> String -> IRBuilderT ModuleBuilder () -> TestTree
+runtimeTest name expected prog = testCase name $ do
+  createDirectoryIfMissing True dirname
+  output <- runModule $ buildModule "testing-module" $ wrapMain prog
+  assertBool ("expected: " ++ expected ++ "\n but got: " ++ show output) $ matches output
+  cleanModule
+  where
+    dirname = "tmp-test"
+    llFile = dirname ++ "/" ++ name ++ ".ll"
+    objFile = dirname ++ "/" ++ name ++ ".o"
+    exeFile = dirname ++ "/" ++ name ++ ".out"
+
+    wrapMain :: MonadModuleBuilder m => IRBuilderT m a -> m ()
+    wrapMain body = M.void $ function "main" [] i32 $ \[] -> body >> ret (int32 0)
+
+    matches :: String -> Bool
+    matches = match $ makeRegexOpts compExtended defaultExecOpt expected
+
+    runModule :: Module -> IO String
+    runModule llvmModule = do
+      bs <- withContext $ \ctx -> withModuleFromAST ctx llvmModule moduleLLVMAssembly
+      writeFile llFile (BSU.toString bs)
+      _ <- readProcess "llc-9" ["-O3", "-filetype=obj", "-o", objFile, llFile] ""
+      _ <- readProcess "clang" ["-O3", "-flto", "-o", exeFile, "runtime.o", objFile] ""
+      readProcess ("./" ++ exeFile) [] ""
+
+    cleanModule :: IO ()
+    cleanModule = do
+      removeFile llFile
+      removeFile objFile
+      removeFile exeFile
+
+
+ensureRuntimeObj :: IO ()
+ensureRuntimeObj = M.void $ readProcess "clang" ["-c", "-O3", "-flto", "runtime.c"] ""
+
+
+makeRuntimeTests :: IO TestTree
+makeRuntimeTests = do
+  ensureRuntimeObj
+  return $ testGroup "Runtime Tests"
+    [ runtimeTest "createInt" "^obj@.*<\\(nil\\),\\(nil\\),0000\\|0001\\|0000>\\[0xa431\\]\n$" $ do
+        runtime <- defineRuntime
+        n <- createInt runtime 0xa431
+        printObj runtime n
+
+    , runtimeTest "getInt" "^0xb241\n$" $ do
+        runtime <- defineRuntime
+        a <- createInt runtime 0xb241
+        n <- getInt runtime a
+        printPtr runtime n
+
+    , let expected = "^(.*)\n\
+                     \obj@\\1<\\(nil\\),\\(nil\\),.*>\\[0x6dfa\\]\n$" in
+      runtimeTest "pushScope" expected $ do
+        runtime@RuntimeRefs{inScope, pushScope} <- defineRuntime
+        a <- createInt runtime 0x6dfa
+        call pushScope [(a, [])]
+        load inScope 8 >>= printPtr runtime
+        printObj runtime a
+
+    , let expected = "^(.*)\n\
+                     \obj@(.*)<\\(nil\\),\\1,.*>\\[0xfa72\\]\n\
+                     \obj@\\1<\\2,\\(nil\\),.*>\\[0x3401\\]\n$" in
+      runtimeTest "popScope" expected $ do
+        runtime@RuntimeRefs{inScope, pushScope, popScope} <- defineRuntime
+        a <- createInt runtime 0xfa72
+        b <- createInt runtime 0x3401
+        call pushScope [(b, [])]
+        call pushScope [(a, [])]
+        call popScope []
+        load inScope 8 >>= printPtr runtime
+        printObj runtime a
+        printObj runtime b
+
+    , runtimeTest "setSlot" "obj@.*<.*>\\[0xfe2f\\]\n$" $ do
+        runtime@RuntimeRefs{setSlot} <- defineRuntime
+        a <- createInt runtime 0x6af8
+        val <- inttoptr (int64 0xfe2f) (ptr i8)
+        call setSlot [(a, []), (int64 0, []), (val, [])]
+        printObj runtime a
+
+    , runtimeTest "getSlot" "^0x762c\n$" $ do
+        runtime@RuntimeRefs{getSlot} <- defineRuntime
+        a <- createInt runtime 0x762c
+        val <- call getSlot [(a, []), (int64 0, [])]
+        printPtr runtime val
+
+    , runtimeTest "createClosure" "^obj@(.*)<\\(nil\\),\\(nil\\),0000\\|0004\\|0001>\\[0xefe4,0x3cd0,0x8d3d,0x897b\\]\n$" $ do
+        runtime <- defineRuntime
+        f <- inttoptr (int64 0x897b) (ptr i8)
+        p <- inttoptr (int64 0xefe4) (ptr i8)
+        obj <- createClosure runtime f [p] [int64 0x3cd0, int64 0x8d3d]
+        printObj runtime obj
+
+    , runtimeTest "callClosure" "^obj@(.*)<.*,.*,0000\\|0003\\|0001>\\[\\0xf330,0x8a2f,0x401...]\n$" $ do
+        runtime <- defineRuntime
+        fn <- function "__test_closure_fn" [(ptr (ptr i8), "env")] void $
+          \[env] -> printObj runtime env >> retVoid
+        p <- inttoptr (int64 0xf330) (ptr i8)
+        clos <- createClosure runtime fn [p] [int64 0x8a2f]
+        _ <- callClosure runtime clos []
+        return ()
+    ]

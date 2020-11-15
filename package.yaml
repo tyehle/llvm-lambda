@@ -23,15 +23,17 @@ dependencies:
 - base
 - bytestring
 - containers
+- llvm-hs
+- llvm-hs-pretty
+- llvm-hs-pure
 - megaparsec
+- mtl
+- text
+- transformers
 
 library:
   source-dirs: src
-  dependencies:
-  - llvm-hs
-  - llvm-hs-pure
-  - mtl
-  - transformers
+  dependencies: []
 
 executables:
   llvm-lambda-exe:
@@ -57,8 +59,10 @@ tests:
     - llvm-lambda
     - directory
     - filepath
+    - regex-posix
     - tasty
     - tasty-hunit
     - tasty-golden
     - process
+    - raw-strings-qq
     - utf8-string
