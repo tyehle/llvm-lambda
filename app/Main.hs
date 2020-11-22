@@ -6,7 +6,7 @@ import qualified Data.Set as Set
 import System.Environment (getArgs)
 
 import qualified ANorm as A
-import Codegen
+import CodegenMonad
 import Expr
 import Fresh (evalFresh)
 import Infer

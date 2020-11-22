@@ -19,6 +19,7 @@ import qualified LLVM.AST.Global as G
 import qualified LLVM.AST.Constant as C
 import LLVM.AST.AddrSpace (AddrSpace(AddrSpace))
 import LLVM.AST.Linkage (Linkage(Private))
+import LLVM.AST.Type
 import LLVM.Context
 import LLVM.Module hiding (Module)
 
@@ -50,8 +51,8 @@ generate prog = do
 --
 --     buildFunction :: FreshCodegen Name
 --     buildFunction = do
---       let envParam = (star $ star $ IntegerType 32, Name "env")
---       let argParam = (star $ IntegerType 32, Name "x")
+--       let envParam = (ptr $ ptr $ IntegerType 32, Name "env")
+--       let argParam = (ptr $ IntegerType 32, Name "x")
 --
 --       -- get a refernece to the environment
 --       let env = uncurry LocalReference envParam
@@ -139,7 +140,7 @@ intTag     = ConstantOperand $ C.Int 32 1
 
 defineGuard :: FreshCodegen ()
 defineGuard = do
-  let actualParam   = (star $ IntegerType 32, Name "actual")
+  let actualParam   = (ptr $ IntegerType 32, Name "actual")
   let expectedParam = (IntegerType 32, Name "expected")
 
   errBlock <- uniqueName "err"
@@ -167,15 +168,15 @@ defineGuard = do
 
 defineCheckArity :: FreshCodegen ()
 defineCheckArity = do
-  let closure = (star $ IntegerType 32, Name "closure")
+  let closure = (ptr $ IntegerType 32, Name "closure")
   let numArgs = (IntegerType 16, Name "numArgs")
 
   errBlock <- uniqueName "err"
   okBlock <- uniqueName "ok"
 
   uniqueName "entry" >>= startBlock
-  shortArray <- cast (star $ IntegerType 16) $ uncurry LocalReference closure
-  arityLoc <- doInstruction (star $ IntegerType 16) $ arrayAccess shortArray 2
+  shortArray <- cast (ptr $ IntegerType 16) $ uncurry LocalReference closure
+  arityLoc <- doInstruction (ptr $ IntegerType 16) $ arrayAccess shortArray 2
   arity <- doInstruction (IntegerType 16) $ Load True arityLoc Nothing 0 []
   notEq <- doInstruction (IntegerType 1) $ ICmp IPred.NE arity (uncurry LocalReference numArgs) []
   finishBlock $ Do $ CondBr notEq errBlock okBlock []
@@ -198,27 +199,30 @@ defineCheckArity = do
 genModule :: Prog -> Fresh Module
 genModule (Prog progDefs expr) = do { moduleDefs <- allDefs; return defaultModule { moduleName = "main", moduleDefinitions = moduleDefs } }
   where
+    typeDefs :: [Definition]
+    typeDefs = [headerTypeDef]
+
     allDefs :: Fresh [Definition]
-    allDefs = map (GlobalDefinition . snd) . Map.toList . defs <$> runCodegen buildModule
+    allDefs = (typeDefs ++) . map (GlobalDefinition . snd) . Map.toList . defs <$> runCodegen buildModule
 
     declareDef :: Def -> FreshCodegen ()
     declareDef (ClosureDef name envName argNames _) =
       modify $ \s -> s { defs = Map.insert defName emptyDef (defs s) }
       where
         defName = mkName name
-        argParam argName = Parameter (star $ IntegerType 32) (mkName argName) []
-        params = Parameter (star (star $ IntegerType 32)) (mkName envName) [] : map argParam argNames
+        argParam argName = Parameter (ptr $ IntegerType 32) (mkName argName) []
+        params = Parameter (ptr (ptr $ IntegerType 32)) (mkName envName) [] : map argParam argNames
         emptyDef = defParams { G.name = defName , G.parameters = (params , False) }
 
     addGlobalDef :: Def -> FreshCodegen ()
     addGlobalDef (ClosureDef name envName argNames body) = do
       uniqueName "entry" >>= startBlock
-      let env = LocalReference (star (star (IntegerType 32))) (mkName envName)
-      let mkArg argName = LocalReference (star (IntegerType 32)) (mkName argName)
+      let env = LocalReference (ptr (ptr (IntegerType 32))) (mkName envName)
+      let mkArg argName = LocalReference (ptr (IntegerType 32)) (mkName argName)
 
       -- mark all locals as in scope
       -- the start of the closure is 16 bytes before the start of the environment
-      closureLoc <- doInstruction (star $ IntegerType 32) (arrayAccess env (-2)) >>= cast (star $ IntegerType 32)
+      closureLoc <- doInstruction (ptr $ IntegerType 32) (arrayAccess env (-2)) >>= cast (ptr $ IntegerType 32)
       _ <- addInstruction $ Do $ callGlobal pushScope [closureLoc]
       mapM_ (\name -> addInstruction $ Do $ callGlobal pushScope [mkArg name]) argNames
 
@@ -265,6 +269,9 @@ genModule (Prog progDefs expr) = do { moduleDefs <- allDefs; return defaultModul
       defineFunction popScope
       defineFunction exit
       defineFunction printf
+      defineFunction createInt
+      defineFunction getObjectSlot
+      defineFunction newAllocate
 
 
 defineFmtString :: FreshCodegen ()
@@ -291,7 +298,7 @@ printOperand loc = do
 
 
 defParams :: Global
-defParams = functionDefaults { G.returnType = star (IntegerType 32) }
+defParams = functionDefaults { G.returnType = ptr (IntegerType 32) }
 
 
 cast :: Type -> Operand -> FreshCodegen Operand
@@ -302,26 +309,16 @@ arrayAccess :: Operand -> Integer -> Instruction
 arrayAccess array index = GetElementPtr True array [ConstantOperand $ C.Int pointerBits index] []
 
 
---         i32*                     i32
 getNum :: Operand -> FreshCodegen Operand
 getNum loc = do
-  checkTag loc intTag
-  valueLoc <- doInstruction (star $ IntegerType 32) $ GetElementPtr True loc [ConstantOperand (C.Int pointerBits 1)] []
-  doInstruction (IntegerType 32) $ Load True valueLoc Nothing 0 []
+  doInstruction i32 $ arrayAccess loc 3
+  -- doInstruction i32 $ Load True valueLoc Nothing 0 []
+
+  -- doInstruction (IntegerType 32) $ callGlobal getObjectSlot [loc, ConstantOperand $ C.Int 16 0]
 
 
 allocNumber :: Operand -> FreshCodegen Operand
-allocNumber num = do
-  -- malloc a number
-  mem <- doInstruction (star $ IntegerType 8) $ callGlobal allocate [ConstantOperand $ C.Int 64 8]
-  loc <- cast (star $ IntegerType 32) mem
-  -- set the type tag
-  addInstruction $ Do $ Store True loc intTag Nothing 0 []
-  -- set the value
-  valueLoc <- doInstruction (star $ IntegerType 32) $ arrayAccess loc 1
-  addInstruction $ Do $ Store True valueLoc num Nothing 0 []
-  -- return the memory location
-  return loc
+allocNumber num = doInstruction (ptr i32) $ callGlobal createInt [num]
 
 
 checkTag :: Operand -> Operand -> FreshCodegen ()
@@ -347,13 +344,13 @@ callClosure requiredPops isTail clos args = do
   let arity = length args
   checkArity clos (fromIntegral arity)
   -- find where the pointer array starts
-  array <- doInstruction (IntegerType 32) (arrayAccess clos 2) >>= cast (star (star (IntegerType 32)))
+  array <- doInstruction (IntegerType 32) (arrayAccess clos 2) >>= cast (ptr (ptr (IntegerType 32)))
   -- get the function
-  let functionType = FunctionType (star $ IntegerType 32) (star (star $ IntegerType 32) : replicate arity (star $ IntegerType 32)) False
-  funcPtr <- doInstruction (star $ IntegerType 32) (arrayAccess array 0) >>= cast (star $ star functionType)
-  func <- doInstruction (star functionType) $ Load True funcPtr Nothing 0 []
+  let functionType = FunctionType (ptr $ IntegerType 32) (ptr (ptr $ IntegerType 32) : replicate arity (ptr $ IntegerType 32)) False
+  funcPtr <- doInstruction (ptr $ IntegerType 32) (arrayAccess array 0) >>= cast (ptr $ ptr functionType)
+  func <- doInstruction (ptr functionType) $ Load True funcPtr Nothing 0 []
   -- get the environment
-  env <- doInstruction (star $ star $ IntegerType 32) $ arrayAccess array 1
+  env <- doInstruction (ptr $ ptr $ IntegerType 32) $ arrayAccess array 1
   -- pop the local scope
   callPopScope requiredPops
   -- call the function
@@ -361,7 +358,7 @@ callClosure requiredPops isTail clos args = do
       retAttrs = G.returnAttributes defParams
       fAttrs = G.functionAttributes defParams
       tailCallKind = if isTail then Just Tail else Just NoTail
-  doInstruction (star $ IntegerType 32) $ Call tailCallKind cc retAttrs (Right func) (zip (env:args) $ repeat []) fAttrs []
+  doInstruction (ptr $ IntegerType 32) $ Call tailCallKind cc retAttrs (Right func) (zip (env:args) $ repeat []) fAttrs []
 
 
 allocClosure :: Name -> [Operand] -> FreshCodegen Operand
@@ -371,24 +368,24 @@ allocClosure funcName values = do
   -- all sizes are in bytes
   let pointerBytes = fromIntegral pointerBits `quot` 8
   let closureSize = ConstantOperand . C.Int 64 . fromIntegral $ 8 + pointerBytes * (length values + 1)
-  loc <- doInstruction (star $ IntegerType 8) (callGlobal allocate [closureSize]) >>= cast (star $ IntegerType 32)
+  loc <- doInstruction (ptr $ IntegerType 8) (callGlobal allocate [closureSize]) >>= cast (ptr $ IntegerType 32)
   -- set the type tag
   addInstruction $ Do $ Store True loc closureTag Nothing 0 []
   -- set number of args
-  loc16 <- cast (star $ IntegerType 16) loc
-  arityLoc <- doInstruction (star $ IntegerType 16) $ arrayAccess loc16 2
+  loc16 <- cast (ptr $ IntegerType 16) loc
+  arityLoc <- doInstruction (ptr $ IntegerType 16) $ arrayAccess loc16 2
   arity <- defArity
   addInstruction $ Do $ Store True arityLoc (ConstantOperand (C.Int 16 arity)) Nothing 0 []
   -- set the size of the environment
-  sizeLoc <- doInstruction (star $ IntegerType 16) $ arrayAccess loc16 3
+  sizeLoc <- doInstruction (ptr $ IntegerType 16) $ arrayAccess loc16 3
   let size = fromIntegral $ length values
   addInstruction $ Do $ Store True sizeLoc (ConstantOperand (C.Int 16 size)) Nothing 0 []
   -- get a reference to the funcPtr
-  let argTypes = star (star $ IntegerType 32) : replicate (fromIntegral arity) (star $ IntegerType 32)
-  let funcRef = C.GlobalReference (star $ FunctionType (star $ IntegerType 32) argTypes False) funcName
-  funcPtr <- cast (star $ IntegerType 32) $ ConstantOperand funcRef
+  let argTypes = ptr (ptr $ IntegerType 32) : replicate (fromIntegral arity) (ptr $ IntegerType 32)
+  let funcRef = C.GlobalReference (ptr $ FunctionType (ptr $ IntegerType 32) argTypes False) funcName
+  funcPtr <- cast (ptr $ IntegerType 32) $ ConstantOperand funcRef
   -- fill in the array of pointers
-  arrayLoc <- doInstruction (star $ IntegerType 32) (arrayAccess loc 2) >>= cast (star $ star $ IntegerType 32)
+  arrayLoc <- doInstruction (ptr $ IntegerType 32) (arrayAccess loc 2) >>= cast (ptr $ ptr $ IntegerType 32)
   storePtr arrayLoc (funcPtr, 0)
   -- fill in the values in the array
   mapM_ (storePtr arrayLoc) (zip values [1..])
@@ -399,9 +396,9 @@ allocClosure funcName values = do
       global <- gets $ \s -> fromMaybe (error ("Function not defined: " ++ show funcName)) $ Map.lookup funcName (defs s)
       return . subtract 1 . fromIntegral . length . fst . G.parameters $ global
     storePtr :: Operand -> (Operand, Integer) -> FreshCodegen ()
-    storePtr arrayLoc (ptr, index) = do
-      wherePut <- doInstruction (star $ star $ IntegerType 32) $ arrayAccess arrayLoc index
-      addInstruction $ Do $ Store True wherePut ptr Nothing 0 []
+    storePtr arrayLoc (p, index) = do
+      wherePut <- doInstruction (ptr $ ptr i32) $ arrayAccess arrayLoc index
+      addInstruction $ Do $ Store True wherePut p Nothing 0 []
 
 
 callPopScope :: Int -> FreshCodegen ()
@@ -410,18 +407,24 @@ callPopScope n = replicateM_ n $ addInstruction $ Do $ callGlobal popScope []
 
 getFromEnv :: Operand -> Integer -> FreshCodegen Operand
 getFromEnv env index = do
-  loc <- doInstruction (star $ star $ IntegerType 32) $ arrayAccess env index
-  doInstruction (star $ IntegerType 32) $ Load True loc Nothing 0 []
+  loc <- doInstruction (ptr $ ptr $ IntegerType 32) $ arrayAccess env index
+  doInstruction (ptr $ IntegerType 32) $ Load True loc Nothing 0 []
 
 
 type IntBinOp = Bool -> Bool -> Operand -> Operand -> InstructionMetadata -> Instruction
 
-numBinOp :: AExpr -> AExpr -> IntBinOp -> FreshCodegen Operand
+numBinOp :: AExpr -> AExpr -> BinOp -> FreshCodegen Operand
 numBinOp a b op = do
   aValue <- synthAExpr a >>= getNum
   bValue <- synthAExpr b >>= getNum
-  resultValue <- doInstruction (IntegerType 32) $ op False False aValue bValue []
+  resultValue <- doInstruction (IntegerType 32) $ (mapOp op) False False aValue bValue []
   allocNumber resultValue
+  where
+    mapOp :: BinOp -> IntBinOp
+    mapOp ANorm.Add = LLVM.AST.Add
+    mapOp ANorm.Sub = LLVM.AST.Sub
+    mapOp ANorm.Mul = LLVM.AST.Mul
+    mapOp ANorm.Div = (const SDiv)
 
 
 synthIf0 :: AExpr -> Expr -> Expr -> FreshCodegen Operand
@@ -442,7 +445,7 @@ synthIf0 c t f = do
   finishBlock $ Do $ Br exitLabel []
   -- get the correct output
   startBlock exitLabel
-  doInstruction (star $ IntegerType 32) $ Phi (star $ IntegerType 32) [(trueValue, trueLabel), (falseValue, falseLabel)] []
+  doInstruction (ptr $ IntegerType 32) $ Phi (ptr $ IntegerType 32) [(trueValue, trueLabel), (falseValue, falseLabel)] []
 
 
 synthFunctionBody :: Int -> Expr -> FreshCodegen ()
@@ -474,7 +477,7 @@ synthFunctionBody requiredPops (App funcName argExprs) = do
   args <- mapM synthAExpr argExprs
   -- pop our local scope before we make the call
   _ <- callPopScope requiredPops
-  result <- doInstruction (star $ IntegerType 32) $ callGlobal global args
+  result <- doInstruction (ptr $ IntegerType 32) $ callGlobal global args
   finishBlock $ Do $ Ret (Just result) []
 
 synthFunctionBody requiredPops (AppClos closExpr argExprs) = do
@@ -502,13 +505,7 @@ synthAExpr (GetEnv envName index) = do
 synthExpr :: Expr -> FreshCodegen Operand
 synthExpr (Num n) = allocNumber . ConstantOperand . C.Int 32 . fromIntegral $ n
 
-synthExpr (Plus a b) = numBinOp a b Add
-
-synthExpr (Minus a b) = numBinOp a b Sub
-
-synthExpr (Mult a b) = numBinOp a b Mul
-
-synthExpr (Divide a b) = numBinOp a b (const SDiv)
+synthExpr (BinOp op a b) = numBinOp a b op
 
 synthExpr (If0 c t f) = synthIf0 c t f
 
@@ -528,7 +525,7 @@ synthExpr (App funcName argExprs) = do
   -- find all our arguments
   args <- mapM synthAExpr argExprs
   -- do the function call
-  doInstruction (star $ IntegerType 32) $ callGlobal global args
+  doInstruction (ptr $ IntegerType 32) $ callGlobal global args
 
 synthExpr (AppClos closExpr argExprs) = do
   clos <- synthAExpr closExpr

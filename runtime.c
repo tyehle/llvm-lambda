@@ -13,15 +13,20 @@ typedef struct __layout {
 
 typedef struct __heap_object {
     struct __heap_object* object_link;
-    struct __heap_object* scope_link;
     __layout layout;
 } __heap_object;
+
+
+typedef struct __scope_cell {
+    struct __heap_object* object;
+    struct __scope_cell* prev;
+} __scope_cell;
 
 
 #define ALIVE 1
 __heap_object* __all_objects = 0;
 uint64_t __num_objects = 0;
-extern __heap_object* __in_scope;
+extern __scope_cell* __in_scope;
 
 
 void __run_gc();
@@ -74,9 +79,8 @@ void __mark_heap_objects(__heap_object* obj) {
     #if defined(DEBUG)
         printf("Marking %p\n", obj);
         printf(
-            "  metadata: %04x %04x %04x %04x\n",
+            "  metadata: %04x|%04x|%04x\n",
             obj->layout.gc_flags,
-            obj->layout.arity,
             obj->layout.size,
             obj->layout.num_pointers
         );
@@ -108,21 +112,21 @@ void __run_gc() {
     #if defined(DEBUG)
         printf("============================= Running GC =============================\n");
     #endif
-    __heap_object* current;
 
     // Mark all visible objects
-    current = __in_scope;
-    while(current != 0) {
+    __scope_cell* current_scope;
+    current_scope = __in_scope;
+    while(current_scope != 0) {
         #if defined(DEBUG)
-            printf("Marking object in scope %p\n", current);
+            printf("Marking object in scope %p\n", current_scope);
         #endif
-        __mark_heap_objects(current);
-        current = current->scope_link;
+        __mark_heap_objects(current_scope->object);
+        current_scope = current_scope->prev;
     }
 
     // free everything that wasn't marked
     __heap_object* previous = 0;
-    current = __all_objects;
+    __heap_object* current = __all_objects;
     while(current != 0) {
         if(current->layout.gc_flags & ALIVE) {
             // this object has been marked
@@ -155,16 +159,13 @@ void __run_gc() {
 }
 
 
-void __print_object(char* ptr) {
-    __heap_object* obj = (__heap_object*)ptr;
-
+void __print_object(__heap_object* obj) {
     uint16_t size = obj->layout.size;
 
     printf(
-        "obj@%p<%p,%p,%04x|%04x|%04x>[",
+        "obj@%p<%p,%04x|%04x|%04x>[",
         obj,
         obj->object_link,
-        obj->scope_link,
         obj->layout.gc_flags,
         size,
         obj->layout.num_pointers
@@ -176,6 +177,22 @@ void __print_object(char* ptr) {
         printf("%p,", values[i]);
     }
     printf("%p]\n", values[size - 1]);
+}
+
+
+void __print_scope() {
+    __scope_cell* current = __in_scope;
+    if(current == 0) {
+        puts("[]");
+        return;
+    }
+    printf("[%p", current->object);
+    current = current->prev;
+    while(current != 0) {
+        printf(",%p", current->object);
+        current = current->prev;
+    }
+    puts("]");
 }
 
 

@@ -2,6 +2,8 @@
 
 module RuntimeDefs where
 
+import qualified Control.Monad as M ( void, zipWithM_ )
+
 import LLVM.AST ( Definition(GlobalDefinition), Name, Operand)
 import qualified LLVM.AST.IntegerPredicate as L (IntegerPredicate(EQ))
 -- import LLVM.AST.DataLayout
@@ -24,24 +26,26 @@ import LLVM.IRBuilder.Constant
 
 -- import Fresh
 
-data RuntimeRefs = RuntimeRefs
-  { printf      :: Operand
-  , exit        :: Operand
+data Runtime = Runtime
+  { printf       :: Operand
+  , exit         :: Operand
   -- | runtime.c defs
-  , layoutType  :: Type
-  , headerType  :: Type
-  , allObjects  :: Operand
-  , numObjects  :: Operand
-  , inScope     :: Operand
-  , allocate    :: Operand
-  , runGC       :: Operand
-  , markObjects :: Operand
-  , printObject :: Operand
+  , layout   :: Type
+  , header       :: Type
+  , scopeCell    :: Type
+  , allObjects   :: Operand
+  , numObjects   :: Operand
+  , inScope      :: Operand
+  , allocate     :: Operand
+  , runGC        :: Operand
+  , markObjects  :: Operand
+  , printObject  :: Operand
+  , printScope   :: Operand
   -- | Local defs
-  , pushScope   :: Operand
-  , popScope    :: Operand
-  , setSlot     :: Operand
-  , getSlot     :: Operand
+  , pushScopeDef :: Operand
+  , popScopeDef  :: Operand
+  , setSlotDef   :: Operand
+  , getSlotDef   :: Operand
   } deriving (Eq, Ord, Show)
 
 
@@ -60,30 +64,35 @@ int16 :: Integer -> Operand
 int16  = ConstantOperand . C.Int 16
 
 
-defineRuntime :: MonadModuleBuilder m => m RuntimeRefs
+defineRuntime :: MonadModuleBuilder m => m Runtime
 defineRuntime = do
   printf <- externVarArgs "printf" [ptr i8] i32
   exit <- extern "exit" [i32] void
+  malloc <- extern "malloc" [i32] (ptr i8)
+  free <- extern "free" [ptr i8] void
 
-  layoutType <- defineLayout
-  headerType <- defineHeader layoutType
-  allObjects <- externGlobal "__all_objects" (ptr headerType)
+  layout <- defineLayout
+  header <- defineHeader layout
+  scopeCell <- defineScopeCell header
+  allObjects <- externGlobal "__all_objects" (ptr header)
   numObjects <- externGlobal "__num_objects" i64
-  inScope <- globalNull "__in_scope" headerType
-  allocate <- extern "__allocate" [i64] (ptr headerType)
+  inScope <- globalNull "__in_scope" scopeCell
+  allocate <- extern "__allocate" [i64] (ptr header)
   runGC <- extern "__run_gc" [] void
-  markObjects <- extern "__mark_heap_objects" [ptr headerType] void
-  printObject <- extern "__print_object" [ptr i8] void
-  pushScope <- definePushScope headerType inScope
-  popScope <- definePopScope headerType inScope printf exit
-  setSlot <- defineSetSlot headerType
-  getSlot <- defineGetSlot headerType
+  markObjects <- extern "__mark_heap_objects" [ptr header] void
+  printObject <- extern "__print_object" [ptr header] void
+  printScope <- extern "__print_scope" [] void
+  pushScope <- definePushScope malloc header scopeCell inScope
+  popScope <- definePopScope scopeCell inScope printf exit free
+  setSlot <- defineSetSlot header
+  getSlot <- defineGetSlot header
 
-  return $ RuntimeRefs
+  return $ Runtime
     { printf = printf
     , exit = exit
-    , layoutType = layoutType
-    , headerType = headerType
+    , layout = layout
+    , header = header
+    , scopeCell = scopeCell
     , allObjects = allObjects
     , numObjects = numObjects
     , inScope = inScope
@@ -91,40 +100,59 @@ defineRuntime = do
     , runGC = runGC
     , markObjects = markObjects
     , printObject = printObject
-    , pushScope = pushScope
-    , popScope = popScope
-    , setSlot = setSlot
-    , getSlot = getSlot
+    , printScope = printScope
+    , pushScopeDef = pushScope
+    , popScopeDef = popScope
+    , setSlotDef = setSlot
+    , getSlotDef = getSlot
     }
 
 defineLayout :: MonadModuleBuilder m => m Type
 defineLayout = typedef "__layout" $ Just $ StructureType False [i16, i16, i16, i16]
 
 defineHeader :: MonadModuleBuilder m => Type -> m Type
-defineHeader layoutType = typedef name $ Just $ StructureType False [ptr ref, ptr ref, layoutType]
+defineHeader layout = typedef name $ Just $ StructureType False [ptr ref, layout]
   where
     name = "__heap_object"
     ref = NamedTypeReference name
 
-definePushScope :: MonadModuleBuilder m => Type -> Operand -> m Operand
-definePushScope header inScope = function "__push_scope" [(ptr header, "obj")] void pushScope
+defineScopeCell :: MonadModuleBuilder m => Type -> m Type
+defineScopeCell header = typedef name $ Just $ StructureType False [ptr header, ptr ref]
+  where
+    name = "__scope_cell"
+    ref = NamedTypeReference name
+
+definePushScope :: MonadModuleBuilder m => Operand -> Type -> Type -> Operand -> m Operand
+definePushScope malloc header scopeCell inScope = function "__push_scope" [(ptr header, "obj")] void pushScope
   where
     pushScope [obj] = do
-      newLink <- gep obj [int64 0, int32 1]
       oldHead <- load inScope 8
-      store newLink 8 oldHead
-      store inScope 8 obj
+      cell <- call malloc [(int32 16, [])] >>= flip bitcast (ptr scopeCell)
+      cellObj <- gep cell [int64 0, int32 0]
+      store cellObj 8 obj
+      cellPrev <- gep cell [int64 0, int32 1]
+      store cellPrev 8 oldHead
+      store inScope 8 cell
       retVoid
 
-definePopScope :: MonadModuleBuilder m => Type -> Operand -> Operand -> Operand -> m Operand
-definePopScope header inScope printf exit = function "__pop_scope" [] void popScope
+pushScope :: MonadIRBuilder m => Runtime -> Operand -> m ()
+pushScope Runtime{pushScopeDef} obj = M.void $ call pushScopeDef [(obj, [])]
+
+definePopScope :: MonadModuleBuilder m
+  => Type    -- ^ scopeCell struct type
+  -> Operand -- ^ inScope pointer to list of in scope cells
+  -> Operand -- ^ printf
+  -> Operand -- ^ exit
+  -> Operand -- ^ free
+  -> m Operand
+definePopScope scopeCell inScope printf exit free = function "__pop_scope" [] void popScope
   where
     popScope [] = do
       err <- freshName "error"
       ok <- freshName "ok"
       -- if(inScope == NULL)
       oldHead <- load inScope 8
-      cond <- icmp L.EQ oldHead (ConstantOperand $ C.Null (ptr header))
+      cond <- icmp L.EQ oldHead (ConstantOperand $ C.Null (ptr scopeCell))
       condBr cond err ok
 
       -- error block
@@ -136,62 +164,74 @@ definePopScope header inScope printf exit = function "__pop_scope" [] void popSc
 
       -- ok block
       emitBlockStart ok
-      -- inScope = inScope->scopeLink
+      -- inScope = inScope->prev
+      -- free(oldHead)
       prevPtr <- gep oldHead [int64 0, int32 1]
       prev <- load prevPtr 8
       store inScope 8 prev
+      oldHeadI8 <- bitcast oldHead $ ptr i8
+      call free [(oldHeadI8, [])]
       retVoid
 
+popScope :: MonadIRBuilder m => Runtime -> m ()
+popScope Runtime{popScopeDef} = M.void $ call popScopeDef []
+
 defineSetSlot :: MonadModuleBuilder m => Type -> m Operand
-defineSetSlot header = function "__set_object_slot" [(ptr header, "obj"), (i64, "index"), (ptr i8, "value")] void body
+defineSetSlot header = function "__set_object_slot" [(ptr header, "obj"), (i64, "index"), (ptr header, "value")] void body
   where
     body [obj, index, value] = do
       objSucc <- gep obj [int64 1]
-      values <- bitcast objSucc (ptr $ ptr i8)
+      values <- bitcast objSucc (ptr $ ptr header)
       slot <- gep values [index]
       store slot 8 value
       retVoid
 
+setSlot :: MonadIRBuilder m => Runtime -> Operand -> Operand -> Operand -> m Operand
+setSlot Runtime{setSlotDef} obj index value = call setSlotDef [(obj, []), (index, []), (value, [])]
+
 defineGetSlot :: MonadModuleBuilder m => Type -> m Operand
-defineGetSlot header = function "__get_object_slot" [(ptr header, "obj"), (i64, "index")] (ptr i8) body
+defineGetSlot header = function "__get_object_slot" [(ptr header, "obj"), (i64, "index")] (ptr header) body
   where
     body [obj, index] = getSlot obj index >>= ret
     getSlot :: (MonadIRBuilder m, MonadModuleBuilder m) => Operand -> Operand -> m Operand
     getSlot obj index = do
       objSucc <- gep obj [int64 1]
-      values <- bitcast objSucc (ptr $ ptr i8)
+      values <- bitcast objSucc (ptr $ ptr header)
       slot <- gep values [index]
       load slot 8
+
+getSlot :: MonadIRBuilder m => Runtime -> Operand -> Operand -> m Operand
+getSlot Runtime{getSlotDef} obj index = call getSlotDef [(obj, []), (index, [])]
 
 
 -- | Object creation routines
 
-createInt :: (MonadIRBuilder m, MonadModuleBuilder m) => RuntimeRefs -> Integer -> m Operand
-createInt RuntimeRefs{allocate, setSlot} value = do
+createInt :: (MonadIRBuilder m, MonadModuleBuilder m) => Runtime -> Operand -> m Operand
+createInt runtime@Runtime{header, allocate} value = do
   obj <- call allocate [(int64 8, [])]
-  ptrValue <- inttoptr (int64 value) (ptr i8)
-  call setSlot [(obj, []), (int64 0, []), (ptrValue, [])]
+  ptrValue <- inttoptr value (ptr header)
+  setSlot runtime obj (int64 0) ptrValue
   return obj
 
-getInt :: (MonadIRBuilder m, MonadModuleBuilder m) => RuntimeRefs -> Operand -> m Operand
-getInt RuntimeRefs{getSlot} obj = call getSlot [(obj, []), (int64 0, [])]
+getInt :: (MonadIRBuilder m, MonadModuleBuilder m) => Runtime -> Operand -> m Operand
+getInt runtime obj = getSlot runtime obj (int64 0) >>= flip ptrtoint i64
 
 createClosure :: (MonadIRBuilder m, MonadModuleBuilder m)
-  => RuntimeRefs -- ^ Runtime
+  => Runtime     -- ^ Runtime
   -> Operand     -- ^ Function pointer
   -> [Operand]   -- ^ Pointers
   -> [Operand]   -- ^ Values
   -> m Operand
-createClosure RuntimeRefs{allocate} fn pointers values = do
+createClosure Runtime{allocate} fn pointers values = do
   let size = fromIntegral $ 8 * (length pointers + length values + 1)
   obj <- call allocate [(int64 size, [])]
   -- set num pointers
-  numPointersAddr <- gep obj [int64 0, int32 2, int32 2]
+  numPointersAddr <- gep obj [int64 0, int32 1, int32 2]
   store numPointersAddr 8 (int16 $ fromIntegral $ length pointers)
   -- set slots
   array <- gep obj [int64 1] >>= flip bitcast (ptr $ ptr i8)
-  _ <- sequence $ zipWith (storePtr array) [0..] pointers
-  _ <- sequence $ zipWith (storeValue array) [fromIntegral $ length pointers..] values
+  M.zipWithM_ (storePtr array) [0..] pointers
+  M.zipWithM_ (storeValue array) [fromIntegral $ length pointers..] values
   _ <- storePtr array (fromIntegral $ length pointers + length values) fn
   return obj
   where
@@ -204,17 +244,18 @@ createClosure RuntimeRefs{allocate} fn pointers values = do
       store addr 8 value
 
 callClosure :: (MonadIRBuilder m, MonadModuleBuilder m)
-  => RuntimeRefs -- ^ Runtime
+  => Runtime -- ^ Runtime
   -> Operand     -- ^ Closure
   -> [Operand]   -- ^ Arguments
   -> m Operand
-callClosure RuntimeRefs{headerType, getSlot} closure args = do
+callClosure runtime@Runtime{header} closure args = do
   envSize <- objectSize closure
   fnSlot <- sub envSize (int16 1) >>= flip zext i64
-  let fnType = ptr $ FunctionType (ptr i8) (ptr headerType : map (const (ptr i8)) args) False
-  fnPtr <- call getSlot [(closure, []), (fnSlot, [])] >>= flip bitcast fnType
+  let numArgs = 1 + length args
+  let fnType = ptr $ FunctionType (ptr header) (replicate numArgs $ ptr header) False
+  fnPtr <- getSlot runtime closure fnSlot >>= flip bitcast fnType
   call fnPtr $ (closure, []) : map (,[]) args
   where
     objectSize obj = do
-      loc <- gep obj [int64 0, int32 2, int32 1]
+      loc <- gep obj [int64 0, int32 1, int32 1]
       load loc 2

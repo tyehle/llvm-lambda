@@ -11,21 +11,26 @@ data AExpr = Ref String
            | GetEnv String Integer
            deriving (Eq, Show)
 
-data Expr = Num Int
-          | Plus AExpr AExpr
-          | Minus AExpr AExpr
-          | Mult AExpr AExpr
-          | Divide AExpr AExpr
-          | If0 AExpr Expr Expr
-          | Let
-              String
-              Expr
-              Expr
-          | App String [AExpr]
-          | AppClos AExpr [AExpr]
-          | NewClos String [AExpr]
-          | Atomic AExpr
-          deriving (Eq, Show)
+data BinOp
+  = Add
+  | Sub
+  | Mul
+  | Div
+  deriving (Eq, Ord, Show)
+
+data Expr
+  = Num Int
+  | BinOp BinOp AExpr AExpr
+  | If0 AExpr Expr Expr
+  | Let
+      String
+      Expr
+      Expr
+  | App String [AExpr]
+  | AppClos AExpr [AExpr]
+  | NewClos String [AExpr]
+  | Atomic AExpr
+  deriving (Eq, Show)
 
 
 freshBinding :: (Monad m, MonadFresh m) => String -> LL.Expr -> m (AExpr, Expr -> Expr)
@@ -46,21 +51,21 @@ bindMany prefix values = do
     indexedBinding i = freshBinding $ prefix ++ show i ++ "_"
 
 
-aNormalizeBinOp :: (Monad m, MonadFresh m) => String -> LL.Expr -> LL.Expr -> (AExpr -> AExpr -> Expr) -> m Expr
+aNormalizeBinOp :: (Monad m, MonadFresh m) => String -> LL.Expr -> LL.Expr -> BinOp -> m Expr
 aNormalizeBinOp name a b op = do
   (aRef, aLet) <- freshBinding ("_" ++ name ++ "_a_") a
   (bRef, bLet) <- freshBinding ("_" ++ name ++ "_b_") b
-  return $ aLet $ bLet $ op aRef bRef
+  return $ aLet $ bLet $ BinOp op aRef bRef
 
 
 aNormalizeExpr :: (Monad m, MonadFresh m) => LL.Expr -> m Expr
 aNormalizeExpr (LL.Num n) =
   pure $ Num n
 
-aNormalizeExpr (LL.Plus a b) = aNormalizeBinOp "add" a b Plus
-aNormalizeExpr (LL.Minus a b) = aNormalizeBinOp "sub" a b Minus
-aNormalizeExpr (LL.Mult a b) = aNormalizeBinOp "mul" a b Mult
-aNormalizeExpr (LL.Divide a b) = aNormalizeBinOp "div" a b Divide
+aNormalizeExpr (LL.Plus a b) = aNormalizeBinOp "add" a b Add
+aNormalizeExpr (LL.Minus a b) = aNormalizeBinOp "sub" a b Sub
+aNormalizeExpr (LL.Mult a b) = aNormalizeBinOp "mul" a b Mul
+aNormalizeExpr (LL.Divide a b) = aNormalizeBinOp "div" a b Div
 
 aNormalizeExpr (LL.If0 c t f) = do
   (cRef, cLet) <- freshBinding "_if_c_" c

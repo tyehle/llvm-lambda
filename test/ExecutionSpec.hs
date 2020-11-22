@@ -14,7 +14,7 @@ import Test.Tasty
 import Test.Tasty.Golden
 
 import qualified ANorm as A
-import Codegen (generate)
+import CodegenMonad (generate)
 import Fresh (evalFresh)
 import Infer
 import qualified LowLevel as LL
@@ -37,10 +37,10 @@ goldenTest tlFile = goldenVsString (takeBaseName tlFile) goldFile $ do
   input <- readFile tlFile
   llvm <- toLLVM tlFile input
   _ <- readProcess "llc-9" ["-O2", "-filetype=asm", "-o", asmFile] $ BSU.toString llvm
-  _ <- readProcess "clang" ["-c", "gc.c"] ""
-  _ <- readProcess "clang" [asmFile, "gc.o", "-o", exeFile] ""
-  _ <- removeFile asmFile
+  _ <- readProcess "clang" ["-c", "runtime.c"] ""
+  _ <- readProcess "clang" [asmFile, "runtime.o", "-o", exeFile] ""
   result <- BLU.fromString <$> readProcess ("./" ++ exeFile) [] ""
+  _ <- removeFile asmFile
   _ <- removeFile exeFile
   return result
   where

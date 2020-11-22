@@ -2,18 +2,21 @@
 
 module Fresh where
 
-import Data.Map (Map)
-import qualified Data.Map as Map
-import Data.Maybe (fromMaybe)
+import Control.Monad.Except
 import Control.Monad.Identity
+import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.State.Strict (liftListen, liftPass)
 import Control.Monad.Writer
-import Control.Monad.Reader
 import Data.ByteString.Char8 (pack)
 import Data.ByteString.Short (toShort)
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Maybe (fromMaybe)
 
 import LLVM.AST
+import LLVM.IRBuilder.Module
+import LLVM.IRBuilder.Monad
 
 
 class MonadFresh m where
@@ -49,6 +52,17 @@ instance Monad m => MonadFresh (FreshT m) where
     modify $ Map.insert name (count + 1)
     return count
 
+instance (MonadFresh m, Monad m) => MonadFresh (ModuleBuilderT m) where
+  next = lift . next
+
+instance (MonadFresh m, Monad m) => MonadFresh (IRBuilderT m) where
+  next = lift . next
+
+instance (MonadFresh m, Monad m) => MonadFresh (ReaderT r m) where
+  next = lift . next
+
+instance (MonadFresh m, Monad m) => MonadFresh (ExceptT e m) where
+  next = lift . next
 
 instance (MonadFresh m, Monad m) => MonadFresh (StateT s m) where
   next = lift . next

@@ -3,7 +3,6 @@ module Infer where
 
 import Control.Monad.Except
 import Control.Monad.State
-import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -42,11 +41,6 @@ binOpType :: BinOp -> PolyType
 binOpType _ = numericBinOpType
   where
     numericBinOpType = PolyType [] (TLam [numType, numType] numType)
-
-
--- | Add some additional context to an error message
-contextualize :: (Pretty c, MonadError String m) => c -> m a -> m a
-contextualize context comp = catchError comp (\err -> throwError $ err ++ "\n  in " ++ pretty context)
 
 
 -- | Instantiate a polytype by creating fresh monotypes for all its arguments and subbing them in

@@ -28,7 +28,7 @@ aNormTests = testGroup "A Normalization Tests"
       (LL.Plus (LL.Num 1) (LL.Num 2))
       (A.Let "_add_a_0" (A.Num 1)
         (A.Let "_add_b_0" (A.Num 2)
-          (A.Plus (A.Ref "_add_a_0") (A.Ref "_add_b_0"))))
+          (A.BinOp A.Add (A.Ref "_add_a_0") (A.Ref "_add_b_0"))))
 
   , testCase "binding order" $ checkNormalization
       (LL.App "external" [LL.Num 0, LL.Ref "one", LL.Num 2])
@@ -39,17 +39,17 @@ aNormTests = testGroup "A Normalization Tests"
   , testCase "nested" $ checkNormalization
       (LL.Plus (LL.Plus (LL.Ref "one") (LL.Num 2)) (LL.Plus (LL.Num 3) (LL.Ref "four")))
       (A.Let "_add_a_0" (A.Let "_add_b_0" (A.Num 2)
-                          (A.Plus (A.Ref "one") (A.Ref "_add_b_0")))
+                          (A.BinOp A.Add (A.Ref "one") (A.Ref "_add_b_0")))
         (A.Let "_add_b_1" (A.Let "_add_a_1" (A.Num 3)
-                            (A.Plus (A.Ref "_add_a_1") (A.Ref "four")))
-          (A.Plus (A.Ref "_add_a_0") (A.Ref "_add_b_1"))))
+                            (A.BinOp A.Add (A.Ref "_add_a_1") (A.Ref "four")))
+          (A.BinOp A.Add (A.Ref "_add_a_0") (A.Ref "_add_b_1"))))
 
   , testCase "closure" $ checkNormalization
       (LL.AppClos (LL.NewClos "_f0" []) [LL.Num 7])
       (A.Let "_clos_0" (A.NewClos "_f0" []) (A.Let "_arg0_0" (A.Num 7) (A.AppClos (A.Ref "_clos_0") [A.Ref "_arg0_0"])))
 
   , let input = LL.Prog [LL.ClosureDef "func" "_env" ["n"] (LL.Plus (LL.Ref "n") (LL.Num 5))] (LL.App "func" [LL.Num 1])
-        expected = A.Prog [A.ClosureDef "func" "_env" ["n"] (A.Let "_add_b_0" (A.Num 5) (A.Plus (A.Ref "n") (A.Ref "_add_b_0")))]
+        expected = A.Prog [A.ClosureDef "func" "_env" ["n"] (A.Let "_add_b_0" (A.Num 5) (A.BinOp A.Add (A.Ref "n") (A.Ref "_add_b_0")))]
                      (A.Let "_arg0_0" (A.Num 1) (A.App "func" [A.Ref "_arg0_0"]))
     in testCase "prog" $ evalFresh (A.aNormalizeProg input) Map.empty @?= expected
   ]

@@ -1,10 +1,13 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Pretty where
 
+import Control.Monad.Except
 import Data.List (intercalate)
 import Data.Char (ord, chr)
 
 import Expr
 import qualified LowLevel as LL
+import qualified ANorm as A
 import Types
 
 subscript :: Int -> String
@@ -15,6 +18,14 @@ subscript = map conv . show
 
 class Pretty a where
   pretty :: a -> String
+
+
+
+-- | Add some additional context to an error message
+contextualize :: (Pretty c, MonadError String m) => c -> m a -> m a
+contextualize context comp = catchError comp (\err -> throwError $ err ++ "\n  in " ++ pretty context)
+
+
 
 instance Pretty Expr where
   pretty expr = case expr of
@@ -72,3 +83,29 @@ instance Pretty LL.Prog where
   pretty (LL.Prog defs expr) = "(prog\n"++defBlock++"\n  "++pretty expr++")\n"
     where
       defBlock = unlines $ map (\line -> "  " ++ line) $ lines $ intercalate "\n" (map pretty defs)
+
+
+instance Pretty A.Expr where
+  pretty expr = case expr of
+    A.Num n                 -> show n
+    A.BinOp op a b          -> prettyOp (pretty op) [a, b]
+    A.If0 c t f             -> prettyOp "if0" [A.Atomic c, t, f]
+    A.Let name value body   -> "(let ["++name++" "++pretty value++"] "++pretty body++")"
+    A.App fName args        -> prettyOp fName args
+    A.AppClos fn args       -> prettyOp (pretty fn) args
+    A.NewClos fName values  -> "(clos "++fName++" ["++intercalate " " (map pretty values)++"])"
+    A.Atomic aExpr          -> pretty aExpr
+    where
+      prettyOp op args = "(" ++ intercalate " " (op : map pretty args) ++ ")"
+
+instance Pretty A.AExpr where
+  pretty expr = case expr of
+    A.Ref name -> name
+    A.GetEnv _ index -> "(get-env "++show index++")"
+
+instance Pretty A.BinOp where
+  pretty op = case op of
+    A.Add -> "+"
+    A.Sub -> "-"
+    A.Mul -> "*"
+    A.Div -> "/"

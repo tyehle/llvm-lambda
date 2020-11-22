@@ -24,14 +24,14 @@ import LLVM.Module hiding (Module)
 import RuntimeDefs
 
 
-printObj :: (MonadIRBuilder m, MonadModuleBuilder m) => RuntimeRefs -> Operand -> m ()
-printObj RuntimeRefs{printObject} obj = do
-  ptr <- bitcast obj (ptr i8)
+printObj :: (MonadIRBuilder m, MonadModuleBuilder m) => Runtime -> Operand -> m ()
+printObj Runtime{header, printObject} obj = do
+  ptr <- bitcast obj (ptr header)
   _ <- call printObject [(ptr, [])]
   return ()
 
-printPtr :: (MonadIRBuilder m, MonadModuleBuilder m) => RuntimeRefs -> Operand -> m ()
-printPtr RuntimeRefs{printf} ptr = do
+printPtr :: (MonadIRBuilder m, MonadModuleBuilder m) => Runtime -> Operand -> m ()
+printPtr Runtime{printf} ptr = do
   formatString <- globalStringPtr "%p\n" "ptr_fmt_string"
   call printf [(ConstantOperand formatString, []), (ptr, [])]
   return ()
@@ -78,61 +78,65 @@ makeRuntimeTests :: IO TestTree
 makeRuntimeTests = do
   ensureRuntimeObj
   return $ testGroup "Runtime Tests"
-    [ runtimeTest "createInt" "^obj@.*<\\(nil\\),\\(nil\\),0000\\|0001\\|0000>\\[0xa431\\]\n$" $ do
+    [ let expected = "^obj@.*<\\(nil\\),0000\\|0001\\|0000>\\[0xa431\\]\n$"
+      in runtimeTest "createInt" expected $ do
         runtime <- defineRuntime
-        n <- createInt runtime 0xa431
+        n <- createInt runtime (int64 0xa431)
         printObj runtime n
 
     , runtimeTest "getInt" "^0xb241\n$" $ do
         runtime <- defineRuntime
-        a <- createInt runtime 0xb241
+        a <- createInt runtime (int64 0xb241)
         n <- getInt runtime a
         printPtr runtime n
 
-    , let expected = "^(.*)\n\
-                     \obj@\\1<\\(nil\\),\\(nil\\),.*>\\[0x6dfa\\]\n$" in
-      runtimeTest "pushScope" expected $ do
-        runtime@RuntimeRefs{inScope, pushScope} <- defineRuntime
-        a <- createInt runtime 0x6dfa
-        call pushScope [(a, [])]
-        load inScope 8 >>= printPtr runtime
+    , let expected = "^obj@(.*)<.*>\\[0x6dfa\\]\n\
+                     \\\[\\1\\]\n$"
+      in runtimeTest "pushScope" expected $ do
+        runtime@Runtime{printScope} <- defineRuntime
+        a <- createInt runtime (int64 0x6dfa)
+        pushScope runtime a
         printObj runtime a
+        _ <- call printScope []
+        return ()
 
-    , let expected = "^(.*)\n\
-                     \obj@(.*)<\\(nil\\),\\1,.*>\\[0xfa72\\]\n\
-                     \obj@\\1<\\2,\\(nil\\),.*>\\[0x3401\\]\n$" in
-      runtimeTest "popScope" expected $ do
-        runtime@RuntimeRefs{inScope, pushScope, popScope} <- defineRuntime
-        a <- createInt runtime 0xfa72
-        b <- createInt runtime 0x3401
-        call pushScope [(b, [])]
-        call pushScope [(a, [])]
-        call popScope []
-        load inScope 8 >>= printPtr runtime
+    , let expected = "^\\[(.*)\\]\n\
+                     \obj@(.*)<\\(nil\\),.*>\\[0xfa72\\]\n\
+                     \obj@\\1<\\2,.*>\\[0x3401\\]\n$"
+      in runtimeTest "popScope" expected $ do
+        runtime@Runtime{printScope} <- defineRuntime
+        a <- createInt runtime (int64 0xfa72)
+        b <- createInt runtime (int64 0x3401)
+        pushScope runtime b
+        pushScope runtime a
+        popScope runtime
+        call printScope []
         printObj runtime a
         printObj runtime b
 
     , runtimeTest "setSlot" "obj@.*<.*>\\[0xfe2f\\]\n$" $ do
-        runtime@RuntimeRefs{setSlot} <- defineRuntime
-        a <- createInt runtime 0x6af8
-        val <- inttoptr (int64 0xfe2f) (ptr i8)
-        call setSlot [(a, []), (int64 0, []), (val, [])]
+        runtime@Runtime{header} <- defineRuntime
+        a <- createInt runtime (int64 0x6af8)
+        val <- inttoptr (int64 0xfe2f) (ptr header)
+        setSlot runtime a (int64 0) val
         printObj runtime a
 
     , runtimeTest "getSlot" "^0x762c\n$" $ do
-        runtime@RuntimeRefs{getSlot} <- defineRuntime
-        a <- createInt runtime 0x762c
-        val <- call getSlot [(a, []), (int64 0, [])]
+        runtime <- defineRuntime
+        a <- createInt runtime (int64 0x762c)
+        val <- getSlot runtime a (int64 0)
         printPtr runtime val
 
-    , runtimeTest "createClosure" "^obj@(.*)<\\(nil\\),\\(nil\\),0000\\|0004\\|0001>\\[0xefe4,0x3cd0,0x8d3d,0x897b\\]\n$" $ do
+    , let expected = "^obj@.*<\\(nil\\),0000\\|0004\\|0001>\\[0xefe4,0x3cd0,0x8d3d,0x897b\\]\n$"
+      in runtimeTest "createClosure" expected $ do
         runtime <- defineRuntime
         f <- inttoptr (int64 0x897b) (ptr i8)
         p <- inttoptr (int64 0xefe4) (ptr i8)
         obj <- createClosure runtime f [p] [int64 0x3cd0, int64 0x8d3d]
         printObj runtime obj
 
-    , runtimeTest "callClosure" "^obj@(.*)<.*,.*,0000\\|0003\\|0001>\\[\\0xf330,0x8a2f,0x401...]\n$" $ do
+    , let expected = "^obj@.*<.*,0000\\|0003\\|0001>\\[\\0xf330,0x8a2f,0x401...]\n$"
+      in runtimeTest "callClosure" expected $ do
         runtime <- defineRuntime
         fn <- function "__test_closure_fn" [(ptr (ptr i8), "env")] void $
           \[env] -> printObj runtime env >> retVoid

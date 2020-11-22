@@ -11,10 +11,11 @@ install-dev-deps:
 @run:
     # to link without clang:
     # ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 /usr/lib/x86_64-linux-gnu/crt1.o /usr/lib/x86_64-linux-gnu/crti.o -lc gen.o /usr/lib/x86_64-linux-gnu/crtn.o
+    # for debugging the runtime: clang -c -flto -O3 -DDEBUG runtime.c
     stack run -- "$@" > gen.ll \
         && opt-9 -S -O3 gen.ll > gen-opt.ll \
         && llc-9 -filetype=obj -O3 gen-opt.ll \
-        && clang -c -flto -O3 -DDEBUG runtime.c \
+        && clang -c -flto -O3 runtime.c \
         && clang -o gen.out -flto -O3 gen-opt.o runtime.o \
         && ./gen.out
 
