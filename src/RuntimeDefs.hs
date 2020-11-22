@@ -244,7 +244,7 @@ createClosure Runtime{allocate} fn pointers values = do
       store addr 8 value
 
 callClosure :: (MonadIRBuilder m, MonadModuleBuilder m)
-  => Runtime -- ^ Runtime
+  => Runtime     -- ^ Runtime
   -> Operand     -- ^ Closure
   -> [Operand]   -- ^ Arguments
   -> m Operand

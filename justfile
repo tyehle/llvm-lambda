@@ -1,7 +1,7 @@
 #!/usr/bin/env just --justfile
 
 build:
-    stack build
+    stack build --test --no-run-tests
     # for debugging the runtime: clang -c -flto -O3 -DDEBUG runtime.c
     clang -c -flto -O3 runtime.c
 

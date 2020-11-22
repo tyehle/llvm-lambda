@@ -10,7 +10,6 @@ import qualified Data.ByteString.Char8 as CBS (pack)
 import qualified Data.ByteString.Short as SBS (toShort)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe ( fromMaybe )
 
 import LLVM.AST ( Module, Operand(ConstantOperand), mkName )
 import qualified LLVM.AST.IntegerPredicate as Pred ( IntegerPredicate(EQ) )
