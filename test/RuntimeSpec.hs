@@ -135,7 +135,7 @@ makeRuntimeTests = do
         obj <- createClosure runtime f [p] [int64 0x3cd0, int64 0x8d3d]
         printObj runtime obj
 
-    , let expected = "^obj@.*<.*,0000\\|0003\\|0001>\\[\\0xf330,0x8a2f,0x401...]\n$"
+    , let expected = "^obj@.*<.*,0000\\|0003\\|0001>\\[\\0xf330,0x8a2f,0x.{6}]\n$"
       in runtimeTest "callClosure" expected $ do
         runtime <- defineRuntime
         fn <- function "__test_closure_fn" [(ptr (ptr i8), "env")] void $
