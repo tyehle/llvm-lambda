@@ -133,4 +133,55 @@ makeRuntimeTests = do
         clos <- createClosure runtime fn [p] [int64 0x8a2f]
         _ <- callClosure runtime clos []
         return ()
+
+      , let expected = "^obj@(.*)<\\(nil\\),0000\\|0001\\|0000>\\[0xe0f5\\]\n\
+                       \obj@(.*)<\\1,0000\\|0002\\|0001>\\[\\1,0x535c\\]\n\
+                       \obj@(.*)<\\2,0001\\|0001\\|0000>\\[0x3c7b\\]\n\
+                       \obj@(.*)<\\3,0001\\|0002\\|0001>\\[\\3,0x5ec7\\]\n\
+                       \obj@(.*)<\\4,0001\\|0002\\|0001>\\[\\4,0xf40a\\]\n$"
+        in runtimeTest "markObjects" expected $ do
+          runtime@Runtime{markObjects} <- defineRuntime
+          ep <- inttoptr (int64 0xe0f5) (ptr i8)
+          dp <- inttoptr (int64 0x535c) (ptr i8)
+          cp <- inttoptr (int64 0x3c7b) (ptr i8)
+          bp <- inttoptr (int64 0x5ec7) (ptr i8)
+          ap <- inttoptr (int64 0xf40a) (ptr i8)
+          e <- createClosure runtime ep [] []
+          d <- createClosure runtime dp [e] []
+          c <- createClosure runtime cp [] []
+          b <- createClosure runtime bp [c] []
+          a <- createClosure runtime ap [b] []
+          call markObjects [(a, [])]
+          printObj runtime e
+          printObj runtime d
+          printObj runtime c
+          printObj runtime b
+          printObj runtime a
+
+      , let expected = "^obj@(.*)<\\(nil\\),0000\\|0001\\|0000>\\[0xe0f5\\]\n\
+                       \obj@(.*)<\\1,0000\\|0001\\|0000>\\[0x3c7b\\]\n\
+                       \obj@(.*)<\\2,0000\\|0002\\|0001>\\[\\2,0x5ec7\\]\n\
+                       \obj@(.*)<\\3,0000\\|0002\\|0001>\\[\\3,0xf40a\\]\n\
+                       \\\[\\1,\\4\\]\n$"
+        in runtimeTest "runGC" expected $ do
+          runtime@Runtime{runGC, printScope} <- defineRuntime
+          ep <- inttoptr (int64 0xe0f5) (ptr i8)
+          dp <- inttoptr (int64 0x535c) (ptr i8)
+          cp <- inttoptr (int64 0x3c7b) (ptr i8)
+          bp <- inttoptr (int64 0x5ec7) (ptr i8)
+          ap <- inttoptr (int64 0xf40a) (ptr i8)
+          e <- createClosure runtime ep [] []
+          d <- createClosure runtime dp [e] []
+          c <- createClosure runtime cp [] []
+          b <- createClosure runtime bp [c] []
+          a <- createClosure runtime ap [b] []
+          pushScope runtime a
+          pushScope runtime e
+          call runGC []
+          printObj runtime e
+          printObj runtime c
+          printObj runtime b
+          printObj runtime a
+          call printScope []
+          return ()
     ]
