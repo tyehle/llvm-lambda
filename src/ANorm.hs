@@ -1,5 +1,7 @@
 module ANorm where
 
+import Control.Monad (zipWithM)
+
 import Fresh
 import qualified LowLevel as LL
 
@@ -44,7 +46,7 @@ freshBinding prefix value = do
 
 bindMany :: (Monad m, MonadFresh m) => String -> [LL.Expr] -> m ([AExpr], Expr -> Expr)
 bindMany prefix values = do
-  binders <- sequence $ zipWith indexedBinding [0..] values
+  binders <- zipWithM indexedBinding [0..] values
   return (map fst binders, \body -> foldr snd body binders)
   where
     indexedBinding :: (Monad m, MonadFresh m) => Int -> LL.Expr -> m (AExpr, Expr -> Expr)

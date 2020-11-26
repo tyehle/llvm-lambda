@@ -122,7 +122,7 @@ convert (HL.Let (HL.VarIdent name) binding body) = do
 
 convert (HL.Letrec name binding body) = do
   let sub expr
-        | expr == (HL.Ref name) = Just $ HL.App (HL.Ref name) [HL.Ref name]
+        | expr == HL.Ref name = Just $ HL.App (HL.Ref name) [HL.Ref name]
         | otherwise = Nothing
       binding' = HL.Lambda [name] $ substitute sub binding
       body' = substitute sub body
