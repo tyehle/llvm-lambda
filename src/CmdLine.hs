@@ -131,14 +131,13 @@ compileRuntimeC Args{debugRuntime} = readProcess "clang" args "" >> return outpu
 
 
 link :: Args -> String -> ByteString -> IO String
-link args@Args{optimizationFlag} output input = do
+link args@Args{inputFile, optimizationFlag} output input = do
   runtimeFileName <- compileRuntimeC args
-  let objFileName = "gen.o"
+  let objFileName = replaceExtension (fromMaybe "gen" inputFile) ".o"
   BS.writeFile objFileName input
   let baseArgs = ["-flto", "-o", output, runtimeFileName, objFileName]
       args = maybe baseArgs (:baseArgs) optimizationFlag
   _ <- readProcess "clang" args ""
-  removeFile runtimeFileName
   removeFile objFileName
   return output
 

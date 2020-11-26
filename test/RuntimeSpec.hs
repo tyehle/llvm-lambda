@@ -1,27 +1,30 @@
-{-# LANGUAGE NamedFieldPuns, OverloadedStrings, QuasiQuotes #-}
+{-# LANGUAGE NamedFieldPuns, OverloadedStrings #-}
 
 module RuntimeSpec (makeRuntimeTests) where
 
 import qualified Control.Monad as M (void)
 import qualified Data.ByteString.UTF8 as BSU
-import System.Directory (removeFile, createDirectoryIfMissing)
-import System.Process (readProcess)
+import System.Directory (createDirectoryIfMissing)
 import Test.Tasty
 import Test.Tasty.HUnit
-import Text.RawString.QQ
 import Text.Regex.Posix
 
 import LLVM.AST (Module)
 import LLVM.AST.Type
 import LLVM.AST.Operand
-import LLVM.Context
 import LLVM.IRBuilder.Module
 import LLVM.IRBuilder.Monad
 import LLVM.IRBuilder.Instruction
 import LLVM.IRBuilder.Constant
-import LLVM.Module hiding (Module)
 
+import CmdLine
+import CmdLineArgs
+import CodegenMonad
 import RuntimeDefs
+
+
+testArgs :: Args
+testArgs = defaultArgs { optimizationFlag = Just "-O3" }
 
 
 printObj :: (MonadIRBuilder m, MonadModuleBuilder m) => Runtime -> Operand -> m ()
@@ -42,11 +45,8 @@ runtimeTest name expected prog = testCase name $ do
   createDirectoryIfMissing True dirname
   output <- runModule $ buildModule "testing-module" $ wrapMain prog
   assertBool ("expected: " ++ expected ++ "\n but got: " ++ show output) $ matches output
-  cleanModule
   where
     dirname = "tmp-test"
-    llFile = dirname ++ "/" ++ name ++ ".ll"
-    objFile = dirname ++ "/" ++ name ++ ".o"
     exeFile = dirname ++ "/" ++ name ++ ".out"
 
     wrapMain :: MonadModuleBuilder m => IRBuilderT m a -> m ()
@@ -57,26 +57,15 @@ runtimeTest name expected prog = testCase name $ do
 
     runModule :: Module -> IO String
     runModule llvmModule = do
-      bs <- withContext $ \ctx -> withModuleFromAST ctx llvmModule moduleLLVMAssembly
-      writeFile llFile (BSU.toString bs)
-      _ <- readProcess "llc-9" ["-O3", "-filetype=obj", "-o", objFile, llFile] ""
-      _ <- readProcess "clang" ["-O3", "-flto", "-o", exeFile, "runtime.o", objFile] ""
-      readProcess ("./" ++ exeFile) [] ""
-
-    cleanModule :: IO ()
-    cleanModule = do
-      removeFile llFile
-      removeFile objFile
-      removeFile exeFile
-
-
-ensureRuntimeObj :: IO ()
-ensureRuntimeObj = M.void $ readProcess "clang" ["-c", "-O3", "-flto", "runtime.c"] ""
+      let args = testArgs { inputFile = Just name }
+      llvm <- BSU.fromString <$> serialize llvmModule
+      result <- optimize args llvm >>= assemble "obj" args >>= link args exeFile >>= execute
+      return $ BSU.toString result
 
 
 makeRuntimeTests :: IO TestTree
 makeRuntimeTests = do
-  ensureRuntimeObj
+  compileRuntimeC testArgs
   return $ testGroup "Runtime Tests"
     [ let expected = "^obj@.*<\\(nil\\),0000\\|0001\\|0000>\\[0xa431\\]\n$"
       in runtimeTest "createInt" expected $ do
