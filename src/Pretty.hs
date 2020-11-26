@@ -71,18 +71,18 @@ instance Pretty LL.Expr where
     LL.Ref name              -> name
     LL.App fName args        -> prettyOp fName args
     LL.AppClos fn args       -> prettyOp (pretty fn) args
-    LL.NewClos fName values  -> "(clos "++fName++" ["++intercalate " " (map pretty values)++"])"
+    LL.NewClos fName values  -> "(clos "++fName++" ["++unwords (map pretty values)++"])"
     LL.GetEnv _ index  -> "(get-env "++show index++")"
     where
-      prettyOp op args = "(" ++ intercalate " " (op : map pretty args) ++ ")"
+      prettyOp op args = "(" ++ unwords (op : map pretty args) ++ ")"
 
 instance Pretty LL.Def where
-  pretty (LL.ClosureDef name _ argNames body) = "(closure-body ("++intercalate " " (name:argNames)++")\n  "++pretty body++")"
+  pretty (LL.ClosureDef name _ argNames body) = "(closure-body ("++unwords (name:argNames)++")\n  "++pretty body++")"
 
 instance Pretty LL.Prog where
   pretty (LL.Prog defs expr) = "(prog\n"++defBlock++"\n  "++pretty expr++")\n"
     where
-      defBlock = unlines $ map (\line -> "  " ++ line) $ lines $ intercalate "\n" (map pretty defs)
+      defBlock = unlines $ map ("  " ++) $ lines $ intercalate "\n" (map pretty defs)
 
 
 instance Pretty A.Expr where
@@ -93,10 +93,10 @@ instance Pretty A.Expr where
     A.Let name value body   -> "(let ["++name++" "++pretty value++"] "++pretty body++")"
     A.App fName args        -> prettyOp fName args
     A.AppClos fn args       -> prettyOp (pretty fn) args
-    A.NewClos fName values  -> "(clos "++fName++" ["++intercalate " " (map pretty values)++"])"
+    A.NewClos fName values  -> "(clos "++fName++" ["++unwords (map pretty values)++"])"
     A.Atomic aExpr          -> pretty aExpr
     where
-      prettyOp op args = "(" ++ intercalate " " (op : map pretty args) ++ ")"
+      prettyOp op args = "(" ++ unwords (op : map pretty args) ++ ")"
 
 instance Pretty A.AExpr where
   pretty expr = case expr of
@@ -109,3 +109,11 @@ instance Pretty A.BinOp where
     A.Sub -> "-"
     A.Mul -> "*"
     A.Div -> "/"
+
+instance Pretty A.Def where
+  pretty (A.ClosureDef name _ argNames body) = "(closure-body ("++unwords (name:argNames)++")\n  "++pretty body++")"
+
+instance Pretty A.Prog where
+  pretty (A.Prog defs expr) = "(prog\n"++defBlock++"\n  "++pretty expr++")\n"
+    where
+      defBlock = unlines $ map ("  " ++) $ lines $ intercalate "\n" (map pretty defs)

@@ -6,7 +6,7 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as CBS (pack)
+import qualified Data.ByteString.Char8 as CBS (pack, unpack)
 import qualified Data.ByteString.Short as SBS (toShort)
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -33,6 +33,10 @@ generate :: Prog -> Fresh (IO ByteString)
 generate prog = do
   llvmModule <- either error id <$> runExceptT (genModule prog)
   return $ withContext $ \ctx -> withModuleFromAST ctx llvmModule moduleLLVMAssembly
+
+
+serialize :: Module -> IO String
+serialize mod = withContext $ \ctx -> withModuleFromAST ctx mod (fmap CBS.unpack . moduleLLVMAssembly)
 
 
 genModule :: Prog -> ExceptT String Fresh Module

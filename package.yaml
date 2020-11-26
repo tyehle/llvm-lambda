@@ -23,20 +23,25 @@ dependencies:
 - base
 - bytestring
 - containers
+- directory
+- filepath
 - llvm-hs
 - llvm-hs-pretty
 - llvm-hs-pure
 - megaparsec
 - mtl
+- optparse-applicative
+- process
 - text
 - transformers
+- utf8-string
 
 library:
   source-dirs: src
   dependencies: []
 
 executables:
-  llvm-lambda-exe:
+  tlc:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
@@ -57,12 +62,9 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - llvm-lambda
-    - directory
-    - filepath
     - regex-posix
     - tasty
     - tasty-hunit
     - tasty-golden
-    - process
     - raw-strings-qq
     - utf8-string
