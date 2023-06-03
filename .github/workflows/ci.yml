@@ -9,16 +9,27 @@ jobs:
 
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
 
     - name: Install Packages
       run: |
         # get system packages
-        sudo apt-get update
-        sudo apt-get install -y llvm-9-dev
+        set -euxo pipefail
+        export DEBIAN_FRONTEND=noninteractive
+        sudo apt-get update -q
+        sudo apt-get install -yq llvm-15-dev clang-15
+        # make sure we have llvm binaries on the path
+        echo "/usr/lib/llvm-15/bin" >> $GITHUB_PATH
 
         # install just
-        curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/share/rust/.cargo/bin
+        sudo snap install --edge --classic just
+
+    - name: Verify package install
+      run: |
+        set -euxo pipefail
+        ls -la $(which llvm-config-15)
+        llvm-config --version
+        clang --version
 
     - name: Cache Global Stack
       uses: actions/cache@v1
