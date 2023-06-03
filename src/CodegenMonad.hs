@@ -2,9 +2,9 @@
 
 module CodegenMonad where
 
-import Control.Monad.Except
-import Control.Monad.Reader
-import Control.Monad.State.Strict
+import Control.Monad.Except hiding (void)
+import Control.Monad.Reader hiding (void)
+import Control.Monad.State.Strict hiding (void)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as CBS (pack, unpack)
 import qualified Data.ByteString.Short as SBS (toShort)
@@ -64,10 +64,15 @@ genProgram (Prog progDefs expr) = do
   where
     mainBody :: [Operand] -> Codegen ()
     mainBody [] = do
-      runtime@Runtime{printf} <- ask
-      result <- genExpr expr >>= getInt runtime
+      runtime@Runtime{printf, printObject, printScope} <- ask
+      resultObj <- genExpr expr
+      result <- getInt runtime resultObj
       formatString <- globalStringPtr "%d\n" "main_fmt_string"
       call (FunctionType i32 [ptr] True) printf [(ConstantOperand formatString, []), (result, [])]
+      -- force the compiler to keep debugging functions even when --debug-runtime is off
+      -- uncomment for debugging binaries
+      -- _ <- call (FunctionType void [ptr] False) printObject [(resultObj, [])]
+      -- _ <- call (FunctionType void [] False) printScope []
       ret (int32 0)
 
     addDefToEnv :: Def -> ModuleState ()
