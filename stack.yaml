@@ -15,7 +15,7 @@
 # resolver:
 #  name: custom-snapshot
 #  location: "./custom-snapshot.yaml"
-resolver: lts-16.11 #9.21
+resolver: lts-20.21 # 18.28 #9.21
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -40,7 +40,14 @@ packages:
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
 extra-deps:
-- llvm-hs-pretty-0.9.0.0
+- git: https://github.com/llvm-hs/llvm-hs
+  commit: 80e0de0f96eb78288c88fda0eaba0f7cf5d38a30 # 423220bffac4990d019fc088c46c5f25310d5a33
+  subdirs:
+  - llvm-hs
+  - llvm-hs-pure
+
+#- git: https://github.com/llvm-hs/llvm-hs-pretty.git
+#  commit: 655ff4d47b3a584b4c9a5863f6121b954825920c
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

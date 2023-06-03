@@ -26,7 +26,7 @@ dependencies:
 - directory
 - filepath
 - llvm-hs
-- llvm-hs-pretty
+#- llvm-hs-pretty
 - llvm-hs-pure
 - megaparsec
 - mtl
@@ -62,7 +62,7 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - llvm-lambda
-    - regex-posix
+    - regex-pcre-builtin
     - tasty
     - tasty-hunit
     - tasty-golden

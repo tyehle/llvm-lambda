@@ -67,23 +67,23 @@ genProgram (Prog progDefs expr) = do
       runtime@Runtime{printf} <- ask
       result <- genExpr expr >>= getInt runtime
       formatString <- globalStringPtr "%d\n" "main_fmt_string"
-      call printf [(ConstantOperand formatString, []), (result, [])]
+      call (FunctionType i32 [ptr] True) printf [(ConstantOperand formatString, []), (result, [])]
       ret (int32 0)
 
     addDefToEnv :: Def -> ModuleState ()
     addDefToEnv (ClosureDef name _ argNames _) = do
       Runtime{header} <- ask
-      let operand = ConstantOperand $ C.GlobalReference ty (mkName name)
+      let operand = ConstantOperand $ C.GlobalReference (mkName name)
           numArgs = 1 + length argNames
-          ty = ptr $ FunctionType (ptr header) (replicate numArgs $ ptr header) False
+          -- ty = ptr $ FunctionType (ptr header) (replicate numArgs $ ptr header) False
       modify $ Map.insert name operand
 
 
 genDef :: Def -> ModuleState ()
 genDef (ClosureDef name envName argNames body) = do
   Runtime{header} <- ask
-  let params = [(ptr header, paramName name) | name <- envName : argNames]
-  function (mkName name) params (ptr header) defineBody
+  let params = [(ptr, paramName name) | name <- envName : argNames]
+  function (mkName name) params ptr defineBody
   return ()
   where
     paramName :: String -> ParameterName

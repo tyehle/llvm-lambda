@@ -10,7 +10,7 @@ import CmdLineArgs
 
 
 testArgs :: Args
-testArgs = defaultArgs { optimizationFlag = Just "-O3" }
+testArgs = defaultArgs { optimizationFlag = Just "-O3", debugRuntime = False }
 
 
 goldenTest :: String -> TestTree

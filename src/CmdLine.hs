@@ -104,14 +104,14 @@ getInput Args{inputFile} = do
 
 
 optimize :: Args -> ByteString -> IO ByteString
-optimize Args{optimizationFlag} = readBProcess "opt-9" args
+optimize Args{optimizationFlag} = readBProcess "opt" args
   where
     baseArgs = ["-S"]
     args = maybe baseArgs (:baseArgs) optimizationFlag
 
 
 assemble :: String -> Args -> ByteString -> IO ByteString
-assemble filetype Args{optimizationFlag} = readBProcess "llc-9" args
+assemble filetype Args{optimizationFlag} = readBProcess "llc" args
   where
     baseArgs = ["-filetype", filetype]
     args = case optimizationFlag of

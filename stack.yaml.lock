@@ -5,15 +5,34 @@
 
 packages:
 - completed:
-    hackage: llvm-hs-pretty-0.9.0.0@sha256:b7a5de5f3dd97893d19d2b47af1e4dd8d075a5cf57062180a912d1f3ef1def60,1671
+    commit: 80e0de0f96eb78288c88fda0eaba0f7cf5d38a30
+    git: https://github.com/llvm-hs/llvm-hs
+    name: llvm-hs
     pantry-tree:
-      size: 4685
-      sha256: 8cf6d628bb4f962575ad0993bb1010e9989cea00b325b8a45ac35ac201061386
+      sha256: 3b5fa30d13f930135b45d0eb18ba7b7598dda33800515f251ed00b13498121e9
+      size: 12716
+    subdir: llvm-hs
+    version: 15.0.0
   original:
-    hackage: llvm-hs-pretty-0.9.0.0
+    commit: 80e0de0f96eb78288c88fda0eaba0f7cf5d38a30
+    git: https://github.com/llvm-hs/llvm-hs
+    subdir: llvm-hs
+- completed:
+    commit: 80e0de0f96eb78288c88fda0eaba0f7cf5d38a30
+    git: https://github.com/llvm-hs/llvm-hs
+    name: llvm-hs-pure
+    pantry-tree:
+      sha256: b512f9e5f8f2b3e3a06bad2fa5ff053a83d817798c7efcd47e254e68c842169d
+      size: 2712
+    subdir: llvm-hs-pure
+    version: 15.0.0
+  original:
+    commit: 80e0de0f96eb78288c88fda0eaba0f7cf5d38a30
+    git: https://github.com/llvm-hs/llvm-hs
+    subdir: llvm-hs-pure
 snapshots:
 - completed:
-    size: 532381
-    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/16/11.yaml
-    sha256: 1f43c4ad661a114a4f9dd4580988f30da1208d844c097714f5867c52a02e0aa1
-  original: lts-16.11
+    sha256: 401a0e813162ba62f04517f60c7d25e93a0f867f94a902421ebf07d1fb5a8c46
+    size: 650044
+    url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/20/21.yaml
+  original: lts-20.21

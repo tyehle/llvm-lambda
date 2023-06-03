@@ -30,6 +30,8 @@ extern __scope_cell* __in_scope;
 
 
 void __run_gc();
+void __print_object(__heap_object* obj);
+void __print_scope();
 
 
 __heap_object* __allocate(size_t num_bytes) {
@@ -38,7 +40,7 @@ __heap_object* __allocate(size_t num_bytes) {
 
     if(num_bytes % 8 != 0) {
         printf("Only allocate a whole number of words\n");
-        exit(-1);
+        exit(1);
     }
 
     __heap_object* obj = malloc(size);
@@ -59,7 +61,7 @@ __heap_object* __allocate(size_t num_bytes) {
         obj = malloc(size);
         if(obj == 0) {
             printf("Out of memory\n");
-            exit(-1);
+            exit(1);
         }
     }
 
@@ -111,6 +113,9 @@ void __mark_heap_objects(__heap_object* obj) {
 void __run_gc() {
     #if defined(DEBUG)
         printf("============================= Running GC =============================\n");
+        puts("current scope: ");
+        __print_scope();
+        puts("\n");
     #endif
 
     // Mark all visible objects
@@ -138,7 +143,9 @@ void __run_gc() {
         } else {
             // delete the object
             #if defined(DEBUG)
-                printf("Freeing %p\n", current);
+                puts("Freeing ");
+                __print_object(current);
+                puts("\n");
             #endif
             // remove the item from the object list
             __num_objects -= 1;
@@ -159,6 +166,7 @@ void __run_gc() {
 }
 
 
+__attribute__((noinline))
 void __print_object(__heap_object* obj) {
     uint16_t size = obj->layout.size;
 
@@ -180,6 +188,7 @@ void __print_object(__heap_object* obj) {
 }
 
 
+__attribute__((noinline))
 void __print_scope() {
     __scope_cell* current = __in_scope;
     if(current == 0) {

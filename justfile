@@ -11,8 +11,8 @@ install-dev-deps:
     # to link without clang:
     # ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 /usr/lib/x86_64-linux-gnu/crt1.o /usr/lib/x86_64-linux-gnu/crti.o -lc gen.o /usr/lib/x86_64-linux-gnu/crtn.o
     # stack run -- --format=llvm "$@" > gen.ll \
-    #     && opt-9 -S -O3 gen.ll > gen-opt.ll \
-    #     && llc-9 -filetype=obj -O3 gen-opt.ll \
+    #     && opt -S -O3 gen.ll > gen-opt.ll \
+    #     && llc -filetype=obj -O3 gen-opt.ll \
     #     && clang -o gen.out -flto -O3 gen-opt.o runtime.o \
     #     && ./gen.out
     stack run -- -O3 "$@"
