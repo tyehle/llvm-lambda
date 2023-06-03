@@ -113,7 +113,7 @@ optimize Args{optimizationFlag} = readBProcess "opt" args
 assemble :: String -> Args -> ByteString -> IO ByteString
 assemble filetype Args{optimizationFlag} = readBProcess "llc" args
   where
-    baseArgs = ["-filetype", filetype]
+    baseArgs = ["--relocation-model=pic", "-filetype", filetype]
     args = case optimizationFlag of
       Just f | f `elem` ["-O0", "-O1", "-O2", "-O3"] -> f : baseArgs
       _ -> baseArgs
@@ -125,7 +125,7 @@ compileRuntimeC Args{debugRuntime} = readProcess "clang" args "" >> return outpu
   where
     input = "runtime.c"
     output = "runtime.o"
-    baseArgs = ["-c", "-O3", "-flto", "-o", output, input]
+    baseArgs = ["-c", "-fPIC", "-O3", "-flto", "-o", output, input]
     debugFlag = "-DDEBUG"
     args = if debugRuntime then debugFlag : baseArgs else baseArgs
 

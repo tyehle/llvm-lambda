@@ -51,7 +51,7 @@ __heap_object* __allocate(size_t num_bytes) {
     }
 
     #if defined(DEBUG)
-        printf("Allocated %lu bytes at %p\n", size, obj);
+        printf("Allocated %lu bytes at 0x%lx\n", size, (long)obj);
     #endif
 
     if(obj == 0) {
@@ -79,7 +79,7 @@ __heap_object* __allocate(size_t num_bytes) {
 
 void __mark_heap_objects(__heap_object* obj) {
     #if defined(DEBUG)
-        printf("Marking %p\n", obj);
+        printf("Marking 0x%lx\n", (long)obj);
         printf(
             "  metadata: %04x|%04x|%04x\n",
             obj->layout.gc_flags,
@@ -113,9 +113,9 @@ void __mark_heap_objects(__heap_object* obj) {
 void __run_gc() {
     #if defined(DEBUG)
         printf("============================= Running GC =============================\n");
-        puts("current scope: ");
+        printf("current scope: ");
         __print_scope();
-        puts("\n");
+        printf("\n");
     #endif
 
     // Mark all visible objects
@@ -123,7 +123,7 @@ void __run_gc() {
     current_scope = __in_scope;
     while(current_scope != 0) {
         #if defined(DEBUG)
-            printf("Marking object in scope %p\n", current_scope);
+            printf("Marking object in scope 0x%lx\n", (long)current_scope);
         #endif
         __mark_heap_objects(current_scope->object);
         current_scope = current_scope->prev;
@@ -143,9 +143,8 @@ void __run_gc() {
         } else {
             // delete the object
             #if defined(DEBUG)
-                puts("Freeing ");
+                printf("Freeing ");
                 __print_object(current);
-                puts("\n");
             #endif
             // remove the item from the object list
             __num_objects -= 1;
@@ -171,9 +170,9 @@ void __print_object(__heap_object* obj) {
     uint16_t size = obj->layout.size;
 
     printf(
-        "obj@%p<%p,%04x|%04x|%04x>[",
-        obj,
-        obj->object_link,
+        "obj@0x%lx<0x%lx,%04x|%04x|%04x>[",
+        (long)obj,
+        (long)obj->object_link,
         obj->layout.gc_flags,
         size,
         obj->layout.num_pointers
@@ -182,9 +181,9 @@ void __print_object(__heap_object* obj) {
     void** values = (void**)(&obj[1]);
 
     for(uint16_t i = 0; i < size - 1; i++) {
-        printf("%p,", values[i]);
+        printf("0x%lx,", (long) values[i]);
     }
-    printf("%p]\n", values[size - 1]);
+    printf("0x%lx]\n", (long) values[size - 1]);
 }
 
 
@@ -195,10 +194,10 @@ void __print_scope() {
         puts("[]");
         return;
     }
-    printf("[%p", current->object);
+    printf("[0x%lx", (long) current->object);
     current = current->prev;
     while(current != 0) {
-        printf(",%p", current->object);
+        printf(",0x%lx", (long) current->object);
         current = current->prev;
     }
     puts("]");

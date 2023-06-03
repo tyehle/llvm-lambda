@@ -32,10 +32,10 @@ jobs:
         clang --version
 
     - name: Cache Global Stack
-      uses: actions/cache@v1
+      uses: actions/cache@v3
       with:
         path: ~/.stack/
-        key: stack-global-${{ hashFiles('package.yaml') }}-${{ hashFiles('stack.yaml') }}
+        key: stack-global-${{ hashFiles('package.yaml') }}-${{ hashFiles('stack.yaml.lock') }}
         restore-keys: stack-global
 
     - name: Install Dependencies
