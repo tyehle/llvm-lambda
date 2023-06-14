@@ -69,5 +69,5 @@ expression = label "expression" $ Float  <$> try floatLit
                               <|> String <$> try stringLit
                               <|> List   <$> list
 
-wholeFile :: Parser Lisp
-wholeFile = sc *> expression <* eof
+wholeFile :: Parser [Lisp]
+wholeFile = sc *> some expression <* eof

@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
-module Expr where
+module HighLevel where
 
 import qualified Data.Set as Set
 import qualified Data.Map as Map
@@ -9,6 +9,13 @@ import qualified Data.Map as Map
 import Scope
 
 newtype VarIdent = VarIdent String deriving (Eq, Ord, Show)
+newtype TypeIdent = TypeIdent String deriving (Eq, Ord, Show)
+newtype ConsIdent = ConsIdent String deriving (Eq, Ord, Show)
+
+data Prog = Prog [Def] [Expr] deriving (Eq, Ord, Show)
+
+data Def = StructDef TypeRef [(ConsIdent, [TypeRef])] deriving (Eq, Ord, Show)
+data TypeRef = TypeRef TypeIdent [TypeIdent] deriving (Eq, Ord, Show)
 
 data Expr = Nat Int
           | BinOp BinOp Expr Expr
@@ -18,7 +25,12 @@ data Expr = Nat Int
           | Letrec VarIdent Expr Expr
           | Lambda [VarIdent] Expr
           | App Expr [Expr]
+          | Case Expr [(CasePattern, Expr)]
           deriving (Eq, Ord, Show)
+
+data CasePattern = ConsPattern ConsIdent [CasePattern]
+                 | VarBinding VarIdent
+                 deriving (Eq, Ord, Show)
 
 
 data BinOp

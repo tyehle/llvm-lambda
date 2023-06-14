@@ -20,6 +20,8 @@ parseLispTests = testGroup "Lisp Parser Tests"
   , testCase "parse symbol" $ checkParser expression "-" (Symbol "-")
   , testCase "parse symbol" $ checkParser expression "\"asdf\"" (String "asdf")
   , testCase "parse symbol" $ checkParser expression "( + 3 -4 )" (List [Symbol "+", Number 3, Number (-4)])
-  , testCase "comment" $ checkParser wholeFile ";a\n12\n;b\n" (Number 12)
-  , testCase "block comment" $ checkParser wholeFile "#;(asd {} asd)12#;()" (Number 12)
+  , testCase "comment" $ checkParser wholeFile ";a\n12\n;b\n" [Number 12]
+  , testCase "block comment" $ checkParser wholeFile "#;(asd {} asd)12#;()" [Number 12]
+  , testCase "multiple nums" $ checkParser wholeFile "12 13" [Number 12, Number 13]
+  , testCase "multiple expressions" $ checkParser wholeFile "(f 6)\n(len \"str\")" [List [Symbol "f", Number 6], List [Symbol "len", String "str"]]
   ]

@@ -2,24 +2,27 @@
 module Infer where
 
 import Control.Monad.Except
+import Control.Monad.Reader
 import Control.Monad.State
-import Data.Map (Map)
+import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
 -- import Debug.Trace (trace)
 
-import Expr
+import HighLevel
 import Pretty
 import Scope
 import Types
+import LLVM.AST (Type(resultType))
 
 type TypeEnv = Map VarIdent PolyType
+type ConsEnv = Map ConsIdent PolyType
 
 type Subs = Map TVarIdent MonoType
 
 data InferState = InferState TVarIdent (Map TVarIdent MonoType)
-type Infer = State InferState
+type Infer = ReaderT ConsEnv (State InferState)
 
 type Fresh = State TVarIdent
 
@@ -29,6 +32,29 @@ fresh = do
   (InferState (TVarIdent n) s) <- get
   put $ InferState (TVarIdent (n + 1)) s
   return $ TVar $ TVarIdent n
+
+
+-- | A version of zipWithM that throws an error if the lengths of the inputs don't match
+zipWithMSafe :: MonadError String m => (a -> b -> m c) -> [a] -> [b] -> m [c]
+zipWithMSafe fn [] [] = pure []
+zipWithMSafe fn (a:as) (b:bs) = do
+  c <- fn a b
+  rest <- zipWithMSafe fn as bs
+  return $ c : rest
+zipWithMSafe _ _ _ = throwError "Type Error: Arity mismatch"
+
+
+-- | lookup and instantiate the type of a constructor
+lookupConstructorType :: ConsIdent -> ExceptT String Infer ([MonoType], MonoType)
+lookupConstructorType name = do
+  env <- ask
+  monoType <- case Map.lookup name env of
+    Nothing -> throwError $ "Undefined constructor: " ++ show name
+    (Just polyType) -> lift $ instantiate polyType
+  case monoType of
+    (TLam args ret) -> return (args, ret)
+    t@(TApp _ _) -> return ([], t)
+    bad -> throwError $ "Constructor is not a function: " ++ show name ++ ": " ++ show bad
 
 
 -- | Core types
@@ -118,11 +144,45 @@ unifyAll _ _ = throwError "Type Error: Arity mismatch"
 
 
 -- | Infer the type of an expression
-infer :: Expr -> Either String PolyType
-infer expr = runInference $ inferRec Map.empty expr >>= (lift . generalize Map.empty)
+infer :: Prog -> Either String PolyType
+infer (Prog defs [expr]) = runInference $ do
+  constructors <- Map.fromList . concat <$> mapM constructorTypes defs
+  local (const constructors) $ do
+    exprType <- inferRec Map.empty expr
+    lift $ generalize Map.empty exprType
   where
     runInference :: ExceptT String Infer a -> Either String a
-    runInference comp = evalState (runExceptT comp) $ InferState (TVarIdent 0) Map.empty
+    runInference comp = evalState (flip runReaderT Map.empty . runExceptT $ comp) $ InferState (TVarIdent 0) Map.empty
+
+    structMap :: ExceptT String Infer ConsEnv
+    structMap = Map.fromList . concat <$> mapM constructorTypes defs
+
+
+-- | Create a list of constructor types for a struct definition
+constructorTypes :: Def -> ExceptT String Infer [(ConsIdent, PolyType)]
+constructorTypes def@(StructDef (TypeRef (TypeIdent name) tvars) constructors) = do
+  tvarIdents <- mapM (const (lift fresh)) tvars
+  let tvarsByName = Map.fromList $ zip tvars tvarIdents
+      structType = TApp name tvarIdents
+  contextualize def $ mapM (constructorType tvarsByName structType) constructors
+  where
+    lookupTVar :: TypeIdent -> Map TypeIdent MonoType -> ExceptT String Infer MonoType
+    lookupTVar name varMap = case Map.lookup name varMap of
+      Nothing -> throwError $ "Undefined type variable: " ++ show name
+      (Just t) -> return t
+
+    mkTApp :: Map TypeIdent MonoType -> TypeRef -> ExceptT String Infer MonoType
+    mkTApp varMap (TypeRef ident []) | Map.member ident varMap = return $ varMap ! ident
+    mkTApp varMap (TypeRef (TypeIdent name) tvars) = TApp name <$> mapM (flip lookupTVar varMap) tvars
+
+    constructorType :: Map TypeIdent MonoType -> MonoType -> (ConsIdent, [TypeRef]) -> ExceptT String Infer (ConsIdent, PolyType)
+    constructorType _ structType (name, []) = do
+      generalStructType <- lift $ generalize Map.empty structType
+      return (name, generalStructType)
+    constructorType varMap structType (name, args) = do
+      argTypes <- mapM (mkTApp varMap) args
+      polyType <- lift . generalize Map.empty $ TLam argTypes structType
+      return (name, polyType)
 
 
 -- | Recursively infer the type of an expression with all the state needed to make that happen
@@ -132,9 +192,12 @@ inferRec env expr = do
   -- trace ("\n>>> " ++ pretty expr ++ prettyState s1) $ return ()
   ret <- contextualize expr $ case expr of
     -- lookup s in the env and specialize if it so we can unify its quantified variables with real types
-    Ref ident -> case Map.lookup ident env of
-      Nothing -> throwError $ "Undefined Variable: " ++ show ident
-      (Just polyType) -> lift $ instantiate polyType
+    Ref ident -> do
+      -- allow constructors to be treated as regular variables
+      constructors <- asks $ Map.mapKeys (\(ConsIdent name) -> VarIdent name)
+      case Map.lookup ident (Map.union constructors env) of
+        Nothing -> throwError $ "Undefined Variable: " ++ show ident
+        (Just polyType) -> lift $ instantiate polyType
 
     Nat _ -> return numType
 
@@ -162,6 +225,17 @@ inferRec env expr = do
       let bodyEnv = Map.insert name polyType env
       inferRec bodyEnv body
 
+    Case obj patterns -> do
+      objType <- inferRec env obj
+      allBindings <- mapM (inferPattern objType . fst) patterns
+      let extendEnv :: Map VarIdent MonoType -> Infer TypeEnv
+          extendEnv bindings = Map.union env <$> mapM (generalize env) bindings
+      bodyEnvs <- mapM (lift . extendEnv) allBindings
+      bodyTypes <- zipWithMSafe inferRec bodyEnvs (map snd patterns)
+      resultType <- lift fresh
+      forM_ bodyTypes (unify resultType)
+      return resultType
+
     App f args -> do
       fType <- inferRec env f
       -- the extra PolyType will unwrapped in inferCall with no side effects
@@ -170,6 +244,8 @@ inferRec env expr = do
       inferCall env args $ PolyType [] fType
 
     If0 cond true false -> do
+      -- infer call just instantiates the given polytype, so we don't need to worry
+      -- about freshness because no other type in the environment can get involved
       let ident = TVarIdent 0
           t = TVar ident
           if0Type = PolyType [ident] (TLam [numType, t, t] t)
@@ -195,3 +271,15 @@ inferCall env args fnPolyType = do
   resultType <- lift fresh
   unify fnType (TLam argTypes resultType)
   return resultType
+
+
+-- | Infer the type of a case pattern and return types of all variable bindings
+inferPattern :: MonoType -> CasePattern -> ExceptT String Infer (Map VarIdent MonoType)
+inferPattern objType (VarBinding ident) = do
+  monoType <- lift fresh
+  unify objType monoType
+  return $ Map.singleton ident monoType
+inferPattern objType (ConsPattern consName subPatterns) = do
+  (argTypes, structType) <- lookupConstructorType consName
+  unify objType structType
+  Map.unions <$> zipWithMSafe inferPattern argTypes subPatterns

@@ -77,7 +77,7 @@ produceOutput args@Args{outputFile, outputFormat, optimizationFlag} = do
   (filename, input) <- getInput args
   let parsed = parse filename $ BSU.toString input
       inferred = parsed >>= infer
-      compiled = do { expr <- parsed; _ <- infer expr; return $ runConvert expr Set.empty }
+      compiled = do { prog <- parsed; _ <- infer prog; return $ runConvert prog Set.empty }
       freshNormalized = liftEither compiled >>= aNormalizeProg
       normalized = runExcept $ evalInnerFresh freshNormalized Map.empty
       llvmModule = runExcept $ evalInnerFresh (freshNormalized >>= genModule) Map.empty

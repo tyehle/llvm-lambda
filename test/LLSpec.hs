@@ -49,4 +49,10 @@ lowLevelTests = testGroup "Low Level Tests"
         , ClosureDef "_f2" "_env" ["z"] (Plus (GetEnv "_env" 0) (GetEnv "_env" 1))
         ]
         (NewClos "_f0" []))
+  -- , testCase "struct" $ checkLowLevel
+  --     "(struct Bool [True] [False]) True"
+  --     (Prog
+  --       [ StructDef
+  --       ]
+  --       (Obj ))
   ]

@@ -7,7 +7,7 @@ import qualified Data.Set as Set
 import Control.Monad.Writer
 import Control.Monad.Reader
 
-import qualified Expr as HL
+import qualified HighLevel as HL
 import Scope
 import Fresh
 
@@ -85,8 +85,8 @@ instance Substitute Expr where
       recur = substitute trySub
 
 
-runConvert :: HL.Expr -> Set String -> Prog
-runConvert body globals = Prog (reverse newDefs) newBody
+runConvert :: HL.Prog -> Set String -> Prog
+runConvert (HL.Prog [] [body]) globals = Prog (reverse newDefs) newBody
   where
     (newBody, newDefs) = runWriter . flip runReaderT globals . flip evalFreshT Map.empty . convert $ body
 

@@ -7,7 +7,7 @@ typedef struct __layout {
     uint16_t gc_flags;
     uint16_t size;
     uint16_t num_pointers;
-    uint16_t placeholder;
+    uint16_t placeholder; // put the sum type tag in here?
 } __layout;
 
 
