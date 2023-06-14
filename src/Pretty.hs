@@ -54,7 +54,7 @@ instance Pretty TypeRef where
   pretty (TypeRef (TypeIdent name) args) = "(" ++ unwords (name : map (\(TypeIdent s) -> s) args) ++ ")"
 
 
-instance Pretty CasePattern where
+instance Pretty MatchPattern where
   pretty (VarBinding (VarIdent name)) = name
   pretty (ConsPattern (ConsIdent ident) subPatterns) = "(" ++ unwords (ident : map pretty subPatterns) ++ ")"
 
@@ -66,13 +66,13 @@ instance Pretty Expr where
     Lambda args body -> "(λ (" ++ unwords (map unwrap args) ++ ") " ++ pretty body ++ ")"
     Let name value body -> "(let [" ++ unwrap name ++ " " ++ pretty value ++ "] " ++ pretty body ++ ")"
     Letrec name value body -> "(letrec [" ++ unwrap name ++ " " ++ pretty value ++ "] " ++ pretty body ++ ")"
-    Case obj patterns -> "(case " ++ unwords (pretty obj : map prettyCaseClause patterns) ++ ")"
+    Match obj patterns -> "(match " ++ unwords (pretty obj : map prettyMatchClause patterns) ++ ")"
     App fn args -> "(" ++ pretty fn ++ " " ++ unwords (map pretty args) ++ ")"
     If0 c t f -> "(if0 " ++ pretty c ++ " " ++ pretty t ++ " " ++ pretty f ++ ")"
     BinOp op a b -> "(" ++ pretty op ++ " " ++ pretty a ++ " " ++ pretty b ++ ")"
     where
       unwrap (VarIdent name) = name
-      prettyCaseClause (pattern, body) = "[" ++ pretty pattern ++ " " ++ pretty body ++ "]"
+      prettyMatchClause (pattern, body) = "[" ++ pretty pattern ++ " " ++ pretty body ++ "]"
 
 
 instance Pretty BinOp where

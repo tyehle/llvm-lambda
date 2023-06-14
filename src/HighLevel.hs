@@ -25,10 +25,10 @@ data Expr = Nat Int
           | Letrec VarIdent Expr Expr
           | Lambda [VarIdent] Expr
           | App Expr [Expr]
-          | Case Expr [(CasePattern, Expr)]
+          | Match Expr [(MatchPattern, Expr)]
           deriving (Eq, Ord, Show)
 
-data CasePattern = ConsPattern ConsIdent [CasePattern]
+data MatchPattern = ConsPattern ConsIdent [MatchPattern]
                  | VarBinding VarIdent
                  deriving (Eq, Ord, Show)
 

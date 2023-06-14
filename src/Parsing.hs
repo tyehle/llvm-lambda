@@ -77,7 +77,7 @@ parseDef keyword exprs = case keyword of
 
 
 keywords :: Set String
-keywords = Set.fromList ["lambda", "let", "letrec", "case", "if0", "+", "-", "*", "/"]
+keywords = Set.fromList ["lambda", "let", "letrec", "match", "if0", "+", "-", "*", "/"]
 
 
 parseKeyword :: MonadFail m => String -> [Lisp] -> m Expr
@@ -94,8 +94,8 @@ parseKeyword keyword exprs = case keyword of
     [List [name, value], body] -> Letrec <$> parseIdentifier name <*> parseExpr value <*> parseExpr body
     _ -> syntaxError
 
-  "case" -> case exprs of
-    (expr : clauses) -> Case <$> parseExpr expr <*> mapM parseCaseClause clauses
+  "match" -> case exprs of
+    (expr : clauses) -> Match <$> parseExpr expr <*> mapM parseMatchClause clauses
 
   "if0" -> case exprs of
     [c, t, f] -> If0 <$> parseExpr c <*> parseExpr t <*> parseExpr f
@@ -118,16 +118,16 @@ parseKeyword keyword exprs = case keyword of
       _ -> syntaxError
 
 
-parseCaseClause :: MonadFail m => Lisp -> m (CasePattern, Expr)
-parseCaseClause (List [pattern, expr]) = do
-  pat <- parseCasePattern pattern
+parseMatchClause :: MonadFail m => Lisp -> m (MatchPattern, Expr)
+parseMatchClause (List [pattern, expr]) = do
+  pat <- parseMatchPattern pattern
   body <- parseExpr expr
   pure (pat, body)
   where
-    parseCasePattern (Symbol name) = pure . VarBinding . VarIdent $ name
-    parseCasePattern (List (Symbol name : args)) = ConsPattern (ConsIdent name) <$> mapM parseCasePattern args
-    parseCasePattern bad = fail $ "Invalid case pattern: " ++ pretty bad
-parseCaseClause bad = fail $ "Invalid case: " ++ pretty bad
+    parseMatchPattern (Symbol name) = pure . VarBinding . VarIdent $ name
+    parseMatchPattern (List (Symbol name : args)) = ConsPattern (ConsIdent name) <$> mapM parseMatchPattern args
+    parseMatchPattern bad = fail $ "Invalid match pattern: " ++ pretty bad
+parseMatchClause bad = fail $ "Invalid match: " ++ pretty bad
 
 
 parseIdentifier :: MonadFail m => Lisp -> m VarIdent

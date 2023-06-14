@@ -225,7 +225,7 @@ inferRec env expr = do
       let bodyEnv = Map.insert name polyType env
       inferRec bodyEnv body
 
-    Case obj patterns -> do
+    Match obj patterns -> do
       objType <- inferRec env obj
       allBindings <- mapM (inferPattern objType . fst) patterns
       let extendEnv :: Map VarIdent MonoType -> Infer TypeEnv
@@ -274,7 +274,7 @@ inferCall env args fnPolyType = do
 
 
 -- | Infer the type of a case pattern and return types of all variable bindings
-inferPattern :: MonoType -> CasePattern -> ExceptT String Infer (Map VarIdent MonoType)
+inferPattern :: MonoType -> MatchPattern -> ExceptT String Infer (Map VarIdent MonoType)
 inferPattern objType (VarBinding ident) = do
   monoType <- lift fresh
   unify objType monoType
